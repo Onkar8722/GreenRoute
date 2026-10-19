@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GreenRoute Dashboard Test</title>
+    <style>
+        body { font-family: Arial; background: #0f1419; color: #e0e0e0; padding: 20px; }
+        .test { margin: 10px 0; padding: 10px; background: #1a1f2e; border-left: 3px solid #1db954; }
+        .pass { border-left-color: #1db954; }
+        .fail { border-left-color: #ff4444; }
+        .pending { border-left-color: #ffbb00; }
+    </style>
+</head>
+<body>
+    <h1>🧪 GreenRoute Dashboard API Test</h1>
+    
+    <div id="results"></div>
+
+    <script>
+        async function test(name, url) {
+            try {
+                const start = performance.now();
+                const response = await fetch(url);
+                const elapsed = (performance.now() - start).toFixed(0);
+                const data = await response.json();
+                
+                const container = document.getElementById('results');
+                const div = document.createElement('div');
+                div.className = 'test pass';
+                
+                if (response.ok && data) {
+                    div.innerHTML = `✅ ${name} (${elapsed}ms)<br><small>${JSON.stringify(data).substring(0, 100)}...</small>`;
+                } else {
+                    div.className = 'test fail';
+                    div.innerHTML = `❌ ${name}: ${response.status}`;
+                }
+                container.appendChild(div);
+            } catch (e) {
+                const div = document.createElement('div');
+                div.className = 'test fail';
+                div.innerHTML = `❌ ${name}: ${e.message}`;
+                document.getElementById('results').appendChild(div);
+            }
+        }
+
+        // Run tests
+        test('Health Check', 'http://127.0.0.1:5000/api/health');
+        test('Get Bins (400)', 'http://127.0.0.1:5000/api/bins');
+        test('Get Stats', 'http://127.0.0.1:5000/api/stats');
+        test('Get Alerts', 'http://127.0.0.1:5000/api/alerts');
+        test('Get Forecast', 'http://127.0.0.1:5000/api/forecast?hours=24');
+        
+        setTimeout(() => {
+            const div = document.createElement('div');
+            div.className = 'test pass';
+            div.innerHTML = '✅ All API endpoints responding!<br><a href="/dashboard">→ Open Dashboard</a>';
+            document.getElementById('results').appendChild(div);
+        }, 2000);
+    </script>
+</body>
+</html>

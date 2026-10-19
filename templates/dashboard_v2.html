@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GreenRoute Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f1419; color: #e0e0e0; }
+        .header { background: linear-gradient(135deg, #1db954 0%, #1ed760 100%); color: white; padding: 20px 40px; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 28px; }
+        .header-stats { display: flex; gap: 30px; }
+        .stat { text-align: center; }
+        .stat-val { font-size: 24px; font-weight: bold; }
+        .stat-lbl { font-size: 12px; opacity: 0.9; }
+        .container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px; max-width: 1800px; margin: 0 auto; }
+        .card { background: #1a1f2e; border-radius: 8px; padding: 20px; border: 1px solid #2a3f5f; }
+        .card h2 { color: #1db954; margin-bottom: 15px; }
+        #map { height: 400px; border-radius: 6px; grid-column: 1 / 3; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; grid-column: 1 / 3; }
+        .stat-card { background: linear-gradient(135deg, #1db954 0%, #1ed760 100%); padding: 15px; border-radius: 6px; text-align: center; color: white; }
+        .stat-card .val { font-size: 24px; font-weight: bold; }
+        .stat-card .lbl { font-size: 12px; margin-top: 5px; }
+        .chart-container { position: relative; height: 300px; margin-bottom: 20px; }
+        .bins-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+        .bin { background: #252d3a; padding: 12px; border-radius: 6px; border-left: 4px solid #1db954; }
+        .bin-id { color: #1db954; font-weight: bold; }
+        .bin-fill { margin: 10px 0; }
+        .progress { height: 8px; background: #2a3f5f; border-radius: 4px; overflow: hidden; }
+        .progress-bar { height: 100%; background: linear-gradient(90deg, #1db954, #1ed760); }
+        .bin-pct { text-align: right; font-size: 12px; color: #1db954; margin-top: 5px; }
+        .alerts-list { max-height: 300px; overflow-y: auto; }
+        .alert { background: #2a1a1a; padding: 10px; margin-bottom: 8px; border-left: 3px solid #ff4444; border-radius: 4px; font-size: 12px; }
+        .grid-col-2 { grid-column: 1 / 3; }
+        @media (max-width: 1200px) { .container { grid-template-columns: 1fr; } #map, .grid-col-2 { grid-column: 1; } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1><i class="fas fa-leaf"></i> GreenRoute Dashboard</h1>
+        <div class="header-stats">
+            <div class="stat">
+                <div class="stat-val" id="h-active">-</div>
+                <div class="stat-lbl">Active Bins</div>
+            </div>
+            <div class="stat">
+                <div class="stat-val" id="h-critical">-</div>
+                <div class="stat-lbl">Critical</div>
+            </div>
+            <div class="stat">
+                <div class="stat-val" id="h-avg">-</div>
+                <div class="stat-lbl">Avg Fill</div>
+            </div>
+            <button onclick="refreshAllData()" style="padding: 8px 16px; background: white; color: #1db954; border: none; border-radius: 4px; cursor: pointer;">🔄 Refresh</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Map -->
+        <div id="map"></div>
+
+        <!-- Stats Cards -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="val" id="s-total">0</div>
+                <div class="lbl">Total Bins</div>
+            </div>
+            <div class="stat-card">
+                <div class="val" id="s-avg">0%</div>
+                <div class="lbl">Average Fill</div>
+            </div>
+            <div class="stat-card">
+                <div class="val" id="s-crit">0</div>
+                <div class="lbl">Critical (>70%)</div>
+            </div>
+            <div class="stat-card">
+                <div class="val" id="s-health">-</div>
+                <div class="lbl">System</div>
+            </div>
+        </div>
+
+        <!-- Top Critical Bins -->
+        <div class="card">
+            <h2><i class="fas fa-exclamation-circle"></i> Top Critical Bins</h2>
+            <div class="bins-list" id="topBins">
+                <p>Loading...</p>
+            </div>
+        </div>
+
+        <!-- Fill Distribution -->
+        <div class="card">
+            <h2><i class="fas fa-chart-bar"></i> Fill Distribution</h2>
+            <div class="chart-container">
+                <canvas id="distChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Forecast -->
+        <div class="card grid-col-2">
+            <h2><i class="fas fa-crystal-ball"></i> 24-Hour Forecast</h2>
+            <div class="chart-container">
+                <canvas id="forecastChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Recent Alerts -->
+        <div class="card">
+            <h2><i class="fas fa-bell"></i> Alerts</h2>
+            <div class="alerts-list" id="alertsList">
+                <p>No alerts</p>
+            </div>
+        </div>
+
+        <!-- System Status -->
+        <div class="card">
+            <h2><i class="fas fa-cogs"></i> System Status</h2>
+            <div id="sysStatus" style="font-size: 13px;">Loading...</div>
+        </div>
+    </div>
+
+    <script>
+        let map, distChart, forecastChart;
+
+        // Initialize map
+        function initMap() {
+            map = L.map('map').setView([18.5204, 73.8567], 12);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap',
+                maxZoom: 19
+            }).addTo(map);
+        }
+
+        // Load all data
+        async function refreshAllData() {
+            try {
+                // Fetch bins
+                const binsRes = await fetch('/api/bins');
+                const binsData = await binsRes.json();
+                displayBins(binsData.bins);
+                
+                // Fetch stats
+                const statsRes = await fetch('/api/stats');
+                const statsData = await statsRes.json();
+                displayStats(statsData);
+                
+                // Fetch forecast
+                const forecastRes = await fetch('/api/forecast');
+                const forecastData = await forecastRes.json();
+                displayForecast(forecastData);
+                
+                // Fetch alerts  
+                const alertsRes = await fetch('/api/alerts');
+                const alertsData = await alertsRes.json();
+                displayAlerts(alertsData);
+                
+                // Fetch health
+                const healthRes = await fetch('/api/health');
+                const healthData = await healthRes.json();
+                displayHealth(healthData);
+                
+            } catch(e) {
+                console.error('Error loading data:', e);
+                document.getElementById('topBins').innerHTML = '<p style="color: #ff4444;">Error loading data</p>';
+            }
+        }
+
+        function displayBins(bins) {
+            // Update header stats
+            document.getElementById('h-active').textContent = bins.length;
+            const critical = bins.filter(b => b.fill > 70).length;
+            document.getElementById('h-critical').textContent = critical;
+            const avg = (bins.reduce((a,b) => a + b.fill, 0) / bins.length).toFixed(1);
+            document.getElementById('h-avg').textContent = avg + '%';
+            
+            // Clear map
+            map.eachLayer(layer => { if(layer.setLatLng) map.removeLayer(layer); });
+            
+            // Add markers
+            bins.forEach(bin => {
+                let color = '#1db954';
+                if(bin.fill > 70) color = '#ff4444';
+                else if(bin.fill > 30) color = '#ffbb00';
+                
+                L.circleMarker([bin.lat, bin.lng], {
+                    radius: 6 + (bin.fill/100)*6,
+                    fillColor: color,
+                    color: color,
+                    weight: 1,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                }).addTo(map).bindPopup(`<b>Bin ${bin.id}</b><br>Fill: ${bin.fill.toFixed(1)}%`);
+            });
+            
+            // Top bins list
+            const top = bins.sort((a,b) => b.fill - a.fill).slice(0,6);
+            document.getElementById('topBins').innerHTML = top.map(b => `
+                <div class="bin">
+                    <div class="bin-id">Bin ${b.id}</div>
+                    <div class="bin-fill">
+                        <div class="progress"><div class="progress-bar" style="width: ${b.fill}%"></div></div>
+                        <div class="bin-pct">${b.fill.toFixed(1)}%</div>
+                    </div>
+                </div>
+            `).join('');
+            
+            // Distribution chart
+            const ranges = {'0-20%': 0, '20-40%': 0, '40-60%': 0, '60-80%': 0, '80-100%': 0};
+            bins.forEach(b => {
+                if(b.fill < 20) ranges['0-20%']++;
+                else if(b.fill < 40) ranges['20-40%']++;
+                else if(b.fill < 60) ranges['40-60%']++;
+                else if(b.fill < 80) ranges['60-80%']++;
+                else ranges['80-100%']++;
+            });
+            
+            if(distChart) distChart.destroy();
+            distChart = new Chart(document.getElementById('distChart'), {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(ranges),
+                    datasets: [{
+                        label: 'Bins',
+                        data: Object.values(ranges),
+                        backgroundColor: '#1db954',
+                        borderColor: '#1ed760',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { grid: { color: '#2a3f5f' }, ticks: { color: '#a0a0a0' } },
+                        x: { grid: { display: false }, ticks: { color: '#a0a0a0' } }
+                    }
+                }
+            });
+        }
+
+        function displayStats(data) {
+            document.getElementById('s-total').textContent = data.total_bins;
+            document.getElementById('s-avg').textContent = data.avg_fill + '%';
+            document.getElementById('s-crit').textContent = data.critical;
+        }
+
+        function displayForecast(data) {
+            const sample = data.forecasts[0];
+            if(!sample || !sample.data || sample.data.length === 0) return;
+            
+            const hours = sample.data.slice(0, 24).map(p => p.hour_ahead + 'h');
+            const fills = sample.data.slice(0, 24).map(p => p.predicted_fill);
+            
+            if(forecastChart) forecastChart.destroy();
+            forecastChart = new Chart(document.getElementById('forecastChart'), {
+                type: 'line',
+                data: {
+                    labels: hours,
+                    datasets: [{
+                        label: 'Predicted Fill %',
+                        data: fills,
+                        borderColor: '#1db954',
+                        backgroundColor: 'rgba(29,185,84,0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 3,
+                        pointBackgroundColor: '#1db954'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: '#a0a0a0' } } },
+                    scales: {
+                        y: { min: 0, max: 100, grid: { color: '#2a3f5f' }, ticks: { color: '#a0a0a0' } },
+                        x: { grid: { display: false }, ticks: { color: '#a0a0a0' } }
+                    }
+                }
+            });
+        }
+
+        function displayAlerts(data) {
+            if(!data.alerts || data.alerts.length === 0) {
+                document.getElementById('alertsList').innerHTML = '<p style="color: #a0a0a0;">✓ No alerts</p>';
+                return;
+            }
+            document.getElementById('alertsList').innerHTML = data.alerts.slice(0, 5).map(a => `
+                <div class="alert">
+                    <strong>Bin ${a.bin_id}:</strong> ${a.message}
+                </div>
+            `).join('');
+        }
+
+        function displayHealth(data) {
+            const status = data.status === 'healthy' ? '✅ Healthy' : '⚠️ Degraded';
+            const dbColor = data.database === 'healthy' ? '#1db954' : '#ff4444';
+            const cacheColor = data.cache === 'healthy' ? '#1db954' : '#ffbb00';
+            
+            document.getElementById('sysStatus').innerHTML = `
+                <p style="color: ${data.status === 'healthy' ? '#1db954' : '#ff4444'}; margin-bottom: 10px;">
+                    <strong>System:</strong> ${status}
+                </p>
+                <p style="color: ${dbColor};">Database: <strong>${data.database}</strong></p>
+                <p style="color: ${cacheColor};">Cache: <strong>${data.cache}</strong></p>
+                <p>MQTT: <strong>${data.mqtt}</strong></p>
+            `;
+            document.getElementById('s-health').textContent = data.status === 'healthy' ? '✅' : '⚠️';
+        }
+
+        function refreshAllData() {
+            refreshAllData();
+        }
+
+        // Initialize
+        window.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            refreshAllData();
+            setInterval(refreshAllData, 30000);
+        });
+    </script>
+</body>
+</html>

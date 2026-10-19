@@ -1,0 +1,1934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Bootstrap CSS -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<!-- Font Awesome for Icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<title>GreenRoute — Smart Waste Route Optimizer</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<style>
+  :root {
+    --bg: #f4f7fb;
+    --panel: #ffffff;
+    --panel-alt: #f8fafc;
+    --border: #d1d5db;
+    --green: #10b981;
+    --green-light: #34d399;
+    --orange: #f59e0b;
+    --orange-light: #fbbf24;
+    --red: #ef4444;
+    --red-light: #f87171;
+    --blue: #3b82f6;
+    --text: #111827;
+    --text-muted: #6b7280;
+    --text-dim: #9ca3af;
+    --red-dim: rgba(239, 68, 68, 0.08);
+    --font: 'Segoe UI', system-ui, sans-serif;
+    --transition-smooth: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.12);
+    --shadow-xl: 0 12px 24px rgba(0, 0, 0, 0.15);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { 
+    min-height: 100vh; 
+    display: flex; 
+    flex-direction: column; 
+    background: linear-gradient(135deg, #e5e7eb 0%, #d1d5db 100%);
+    color: var(--text); 
+    font-family: var(--font); 
+    overflow: hidden;
+    scroll-behavior: smooth;
+  }
+
+  /* HEADER */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 24px;
+    background: linear-gradient(90deg, #ffffff 0%, #f8fafc 50%, #ffffff 100%);
+    border-bottom: 1px solid rgba(148, 163, 184, .25);
+    box-shadow: 0 12px 30px rgba(15, 23, 42, .08), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    position: relative;
+    overflow: hidden;
+  }
+  header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+    animation: shimmer 3s infinite;
+    pointer-events: none;
+  }
+  @keyframes shimmer {
+    0% { left: -100%; }
+    100% { left: 100%; }
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    animation: fadeInDown 0.6s ease;
+  }
+  .logo-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--blue) 0%, #2563eb 100%);
+    color: #ffffff;
+    font-size: 18px;
+    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+    transition: var(--transition-smooth);
+  }
+  .logo-icon:hover {
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+  }
+  .logo h1 {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -.4px;
+    background: linear-gradient(135deg, #111827 0%, var(--blue) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .logo span {
+    color: var(--green);
+  }
+  .logo small {
+    display: block;
+    font-size: 12px;
+    color: var(--text-muted);
+    animation: fadeIn 0.8s ease 0.2s both;
+  }
+  @keyframes fadeInDown {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .header-actions button {
+    border-radius: 999px;
+    padding: 10px 14px;
+    border: 1px solid rgba(59, 130, 246, .16);
+    background: linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%);
+    color: var(--blue);
+    font-weight: 700;
+    transition: var(--transition-smooth);
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.08);
+  }
+  .header-actions button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+    border-color: rgba(59, 130, 246, 0.3);
+    background: linear-gradient(135deg, #dbeafe 0%, #e0f2fe 100%);
+  }
+  .header-actions button:active {
+    transform: translateY(0);
+  }
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, rgba(16, 185, 129, .12) 0%, rgba(52, 211, 153, .08) 100%);
+    color: var(--green);
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.08);
+    animation: pulse-badge 2s ease-in-out infinite;
+  }
+  @keyframes pulse-badge {
+    0%, 100% { box-shadow: 0 2px 8px rgba(16, 185, 129, 0.08); }
+    50% { box-shadow: 0 4px 12px rgba(16, 185, 129, 0.15); }
+  }
+  .status-badge::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: blink 2s ease-in-out infinite;
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  .header-meta {
+    text-align: right;
+    font-size: 12px;
+    color: var(--text-muted);
+    transition: var(--transition-smooth);
+  }
+  .header-meta strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  /* LAYOUT */
+  .main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    overflow: hidden;
+  }
+  .map-wrap {
+    background: #e2e8f0;
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* FOOTER */
+  footer {
+    padding: 14px 24px;
+    background: linear-gradient(90deg, #ffffff 0%, #f8fafc 50%, #ffffff 100%);
+    border-top: 1px solid rgba(148, 163, 184, .2);
+    font-size: 12px;
+    color: #475569;
+    text-align: center;
+    flex-shrink: 0;
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
+    transition: var(--transition-smooth);
+  }
+  footer:hover {
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.08);
+  }
+
+  /* SIDEBAR */
+  .sidebar {
+    width: 360px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    border-right: 1px solid rgba(148, 163, 184, .2);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex-shrink: 0;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.04);
+  }
+  .sidebar-tabs {
+    display: flex;
+    gap: 10px;
+    padding: 16px 20px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.8) 0%, rgba(248, 250, 252, 0.5) 100%);
+    border-bottom: 1px solid rgba(148, 163, 184, .1);
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: var(--panel-alt);
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    position: relative;
+    overflow: hidden;
+  }
+  .tab-btn::before {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--green), var(--green-light));
+    transition: width 0.3s ease;
+  }
+  .tab-btn.active {
+    color: var(--blue);
+    background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+    border-color: rgba(59, 130, 246, 0.3);
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+  }
+  .tab-btn.active::before {
+    width: 100%;
+  }
+  .tab-btn:hover:not(.active) {
+    color: var(--blue);
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    transform: translateY(-1px);
+  }
+  .tab-content {
+    display: none;
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px 20px;
+    flex-direction: column;
+    gap: 16px;
+    animation: fadeIn 0.3s ease;
+  }
+  .tab-content.active {
+    display: flex;
+  }
+  .sidebar.collapsed .tab-content {
+    display: none;
+  }
+
+  /* STATS CARDS */
+  .stats-grid { 
+    display: grid; 
+    grid-template-columns: 1fr 1fr; 
+    gap: 12px;
+    animation: fadeIn 0.6s ease 0.3s both;
+  }
+  .stat-card { 
+    background: linear-gradient(135deg, var(--bg) 0%, rgba(255, 255, 255, 0.5) 100%);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    transition: var(--transition-smooth);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -50%;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.3) 0%, transparent 70%);
+    opacity: 0;
+    transition: var(--transition-smooth);
+  }
+  .stat-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.12);
+    border-color: var(--green);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.7) 100%);
+  }
+  .stat-card:hover::before {
+    opacity: 1;
+  }
+  .stat-card .label { 
+    font-size: 10px; 
+    font-weight: 600; 
+    text-transform: uppercase; 
+    letter-spacing: .6px; 
+    color: var(--text-muted); 
+    margin-bottom: 6px;
+    transition: var(--transition-smooth);
+  }
+  .stat-card:hover .label {
+    color: var(--green);
+  }
+  .stat-card .value { 
+    font-size: 24px; 
+    font-weight: 800; 
+    line-height: 1;
+    transition: var(--transition-smooth);
+  }
+  .stat-card:hover .value {
+    transform: scale(1.08);
+  }
+  .stat-card .sub { 
+    font-size: 10px; 
+    color: var(--text-muted); 
+    margin-top: 4px;
+    transition: var(--transition-smooth);
+  }
+  .stat-card:hover .sub {
+    color: var(--text);
+  }
+  .stat-card.critical .value { color: var(--red-light); }
+  .stat-card.high .value { color: var(--orange-light); }
+  .stat-card.medium .value { color: #e3b341; }
+  .stat-card.ok .value { color: var(--green-light); }
+
+  .section-card { 
+    background: linear-gradient(135deg, var(--panel-alt) 0%, rgba(248, 250, 252, 0.5) 100%);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 18px;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transition: var(--transition-smooth);
+    position: relative;
+    overflow: hidden;
+  }
+  .section-card::before {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.8), transparent);
+  }
+  .section-card:hover {
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+    transform: translateY(-2px);
+  }
+  .section-card h2 { 
+    font-size: 14px; 
+    margin-bottom: 12px; 
+    color: var(--text);
+    font-weight: 700;
+    transition: var(--transition-smooth);
+  }
+  .section-card:hover h2 {
+    color: var(--green);
+  }
+  .section-grid { display:grid; gap:12px; }
+  .columns-2 { grid-template-columns:1fr 1fr; }
+  .filter-row { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--text-muted); }
+  .filter-row span { color:var(--text-muted); }
+  .filter-row strong { color:var(--text); font-size:14px; }
+  .section-card.chart-card canvas { width:100%; height:auto; min-height:170px; }
+  .bin-search input { width:100%; }
+  .section-card .btn-row { margin-top:12px; }
+  .section-card .btn-row button { flex:1; }
+
+  /* FILL BAR */
+  .fill-bar-wrap { margin-top: 10px; }
+  .fill-bar-label { 
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .fill-bar-track { 
+    height: 10px;
+    background: linear-gradient(90deg, var(--bg) 0%, rgba(248, 250, 252, 0.7) 100%);
+    border-radius: 6px;
+    overflow: hidden;
+    display: flex;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05);
+  }
+  .fill-segment { 
+    height: 100%;
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+  }
+  .fill-segment::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    animation: shimmer 2s infinite;
+  }
+
+  /* SECTION HEADER */
+  .section-header { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.8px; color:var(--text-muted); padding:4px 0; border-bottom:1px solid var(--border); margin-bottom:4px; display:flex; align-items:center; gap:6px; }
+  .section-header::before { content:''; width:12px; height:12px; background:var(--green); border-radius:2px; flex-shrink:0; }
+
+  /* ROUTE CONTROLS */
+  .controls { display:flex; flex-direction:column; gap:8px; }
+  .control-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .control-row label { font-size:12px; color:var(--text-muted); }
+  select, input[type=range] { 
+    background: linear-gradient(135deg, var(--bg) 0%, rgba(248, 250, 252, 0.5) 100%);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    transition: var(--transition-smooth);
+  }
+  select { 
+    width: 140px;
+    cursor: pointer;
+  }
+  select:hover, input[type=range]:hover {
+    border-color: var(--green);
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.08);
+  }
+  select:focus, input[type=range]:focus {
+    outline: none;
+    border-color: var(--blue);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+  }
+  input[type=range] { 
+    width: 120px;
+    accent-color: var(--green);
+  }
+  .range-val { 
+    font-size: 12px;
+    color: var(--green-light);
+    font-weight: 700;
+    min-width: 28px;
+    text-align: right;
+  }
+  .btn { 
+    padding: 10px 16px; 
+    border-radius: 8px; 
+    border: none; 
+    cursor: pointer; 
+    font-size: 12px; 
+    font-weight: 600; 
+    transition: var(--transition-smooth);
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  }
+  .btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+  }
+  .btn:active::before {
+    width: 300px;
+    height: 300px;
+  }
+  .btn-primary { 
+    background: linear-gradient(135deg, var(--green) 0%, #059669 100%);
+    color: #fff;
+  }
+  .btn-primary:hover { 
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+    background: linear-gradient(135deg, var(--green-light) 0%, var(--green) 100%);
+  }
+  .btn-primary:active { 
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(16, 185, 129, 0.2);
+  }
+  .btn-secondary { 
+    background: linear-gradient(135deg, var(--bg) 0%, rgba(248, 250, 252, 0.7) 100%);
+    border: 1.5px solid var(--border);
+    color: var(--text-muted);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  }
+  .btn-secondary:hover { 
+    border-color: var(--green);
+    color: var(--green-light);
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(52, 211, 153, 0.04) 100%);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.15);
+    transform: translateY(-2px);
+  }
+  .btn-row { 
+    display: flex; 
+    gap: 8px;
+    animation: fadeIn 0.5s ease 0.4s both;
+  }
+
+  /* ROUTE SUMMARY */
+  .route-summary { 
+    background: linear-gradient(135deg, var(--bg) 0%, rgba(248, 250, 252, 0.5) 100%);
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    transition: var(--transition-smooth);
+    animation: fadeInUp 0.4s ease;
+  }
+  .route-summary:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    transform: translateY(-2px);
+  }
+  .route-meta { 
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .route-meta-item { 
+    text-align: center;
+    padding: 8px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.5);
+    transition: var(--transition-smooth);
+  }
+  .route-meta-item:hover {
+    background: rgba(255, 255, 255, 0.8);
+  }
+  .route-meta-item .val { 
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--green-light);
+  }
+  .route-meta-item .lbl { 
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 3px;
+    font-weight: 600;
+  }
+  .route-stops { 
+    margin-top: 12px;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+  .route-stop { 
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    transition: var(--transition-smooth);
+  }
+  .route-stop:hover {
+    background: rgba(16, 185, 129, 0.05);
+    padding-left: 4px;
+  }
+  .route-stop:last-child { border-bottom: none; }
+  .stop-num { 
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 800;
+    flex-shrink: 0;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+    transition: var(--transition-smooth);
+  }
+  .route-stop:hover .stop-num {
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+    transform: scale(1.1);
+  }
+  .stop-depot { background: var(--blue); color: #fff; }
+  .stop-critical { background: var(--red); color: #fff; }
+  .stop-high { background: var(--orange); color: #000; }
+  .stop-medium { background: #e3b341; color: #000; }
+  .stop-id { font-weight: 700; flex: 1; }
+  .stop-fill { font-weight: 800; }
+  .stop-dist { color: var(--text-muted); font-size: 10px; }
+
+  /* BIN LIST */
+  .bin-search { 
+    display: flex;
+    align-items: center;
+    background: linear-gradient(135deg, var(--bg) 0%, rgba(248, 250, 252, 0.5) 100%);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    gap: 8px;
+    margin-bottom: 8px;
+    transition: var(--transition-smooth);
+  }
+  .bin-search:focus-within {
+    border-color: var(--green);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.1);
+  }
+  .bin-search input { 
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 12px;
+    flex: 1;
+    outline: none;
+  }
+  .bin-search span { color: var(--text-dim); }
+  .bin-list { display:flex; flex-direction:column; gap:4px; overflow-y:auto; }
+  .bin-item { 
+    background: linear-gradient(135deg, var(--bg) 0%, rgba(248, 250, 252, 0.5) 100%);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: relative;
+    overflow: hidden;
+  }
+  .bin-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 3px;
+    background: var(--green);
+    transform: scaleY(0);
+    transition: transform 0.3s ease;
+  }
+  .bin-item:hover {
+    border-color: var(--green);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.15);
+    transform: translateX(4px);
+  }
+  .bin-item:hover::before {
+    transform: scaleY(1);
+  }
+  .bin-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .bin-info { flex:1; min-width:0; }
+  .bin-info .id { font-size:11px; font-weight:600; }
+  .bin-info .loc { font-size:10px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .fill-pill { font-size:11px; font-weight:700; padding:2px 7px; border-radius:10px; }
+
+  /* MAP — must fill flex parent; plain flex:1 on #map did nothing (parent was not a flex container) */
+  #map { flex:1; min-height:0; width:100%; background:#e8ecf1; }
+  .leaflet-control-layers { 
+    border-radius: 12px !important; 
+    border: 1px solid rgba(148, 163, 184, .2) !important; 
+    background: linear-gradient(135deg, var(--panel) 0%, rgba(255, 255, 255, 0.95) 100%) !important;
+    color: var(--text) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+  }
+  .leaflet-control-layers-expanded { padding: 10px 12px !important; }
+  .leaflet-control-layers-base label { 
+    color: var(--text);
+    font-size: 12px;
+    margin: 6px 0;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+  }
+  .leaflet-control-layers-base label:hover {
+    color: var(--green);
+  }
+  .leaflet-bar a { 
+    background: linear-gradient(135deg, var(--panel) 0%, rgba(255, 255, 255, 0.9) 100%) !important;
+    color: var(--text) !important;
+    border-color: var(--border) !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08) !important;
+    transition: var(--transition-smooth) !important;
+  }
+  .leaflet-bar a:hover { 
+    background: linear-gradient(135deg, var(--bg) 0%, rgba(248, 250, 252, 0.9) 100%) !important;
+    color: var(--green-light) !important;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.15) !important;
+  }
+  .leaflet-popup-content-wrapper { 
+    background: linear-gradient(135deg, var(--panel) 0%, rgba(255, 255, 255, 0.95) 100%) !important;
+    border: 1.5px solid var(--border) !important;
+    color: var(--text) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15) !important;
+  }
+  .leaflet-popup-tip { background: linear-gradient(135deg, var(--panel) 0%, rgba(255, 255, 255, 0.95) 100%) !important; }
+  .popup-title { 
+    font-weight: 800;
+    font-size: 13px;
+    margin-bottom: 8px;
+    color: var(--green);
+  }
+  .popup-row { 
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    margin: 4px 0;
+    color: var(--text-muted);
+  }
+  .popup-row span { 
+    color: var(--text);
+    font-weight: 700;
+  }
+  .popup-fill-bar { 
+    height: 8px;
+    background: var(--bg);
+    border-radius: 4px;
+    margin-top: 8px;
+    overflow: hidden;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05);
+  }
+  .popup-fill-inner { 
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.6s ease;
+  }
+
+  /* LEGEND */
+  .map-legend { 
+    position: absolute;
+    bottom: 20px;
+    left: 330px;
+    z-index: 1000;
+    background: linear-gradient(135deg, var(--panel) 0%, rgba(255, 255, 255, 0.95) 100%);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 16px;
+    font-size: 11px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transition: var(--transition-smooth);
+    animation: slideUp 0.5s ease 0.6s both;
+  }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .map-legend:hover { 
+    transform: translateY(-4px);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+  }
+  /* ROUTE PANEL overlay */
+  .route-overlay { 
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 1000;
+    background: linear-gradient(135deg, var(--panel) 0%, rgba(255, 255, 255, 0.95) 100%);
+    border: 1.5px solid var(--green);
+    border-radius: 12px;
+    padding: 14px 16px;
+    font-size: 11px;
+    min-width: 180px;
+    display: none;
+    box-shadow: 0 8px 24px rgba(16, 185, 129, 0.15);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transition: var(--transition-smooth);
+  }
+  .route-overlay.visible { 
+    display: block;
+    animation: slideIn 0.3s ease;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .route-overlay:hover {
+    box-shadow: 0 12px 32px rgba(16, 185, 129, 0.2);
+  }
+  .route-overlay-title { font-weight:700; color:var(--green-light); margin-bottom:6px; font-size:12px; }
+  .route-overlay-row { display:flex; justify-content:space-between; margin:3px 0; }
+  .route-overlay-row span { color:var(--green-light); font-weight:700; }
+
+  .telemetry-item { 
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    padding: 10px;
+    background: linear-gradient(135deg, rgba(56, 139, 253, 0.08) 0%, rgba(59, 130, 246, 0.04) 100%);
+    border: 1px solid rgba(56, 139, 253, 0.2);
+    border-radius: 10px;
+    transition: var(--transition-smooth);
+    animation: fadeInUp 0.4s ease;
+  }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .telemetry-item:hover {
+    background: linear-gradient(135deg, rgba(56, 139, 253, 0.12) 0%, rgba(59, 130, 246, 0.08) 100%);
+    border-color: rgba(56, 139, 253, 0.4);
+    box-shadow: 0 4px 12px rgba(56, 139, 253, 0.1);
+  }
+  .telemetry-item .left { 
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+  }
+  .telemetry-item .label { 
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    font-weight: 600;
+  }
+  .telemetry-item .value { 
+    color: var(--text);
+    font-weight: 600;
+  }
+  .telemetry-item .right { 
+    text-align: right;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  /* ALERT TICKER */
+  .alert-ticker { 
+    background: linear-gradient(90deg, var(--red-dim) 0%, rgba(239, 68, 68, 0.05) 100%);
+    border-top: 2px solid var(--red);
+    padding: 8px 20px;
+    font-size: 11px;
+    color: var(--red-light);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    box-shadow: 0 -2px 8px rgba(239, 68, 68, 0.08);
+  }
+  .alert-ticker strong { 
+    color: var(--red);
+    font-weight: 800;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+  .ticker-scroll { 
+    flex: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width:4px; } ::-webkit-scrollbar-track { background:transparent; } ::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  .tab-content::-webkit-scrollbar { width:3px; }
+
+  /* TOAST */
+  .toast { 
+    position: fixed;
+    bottom: 30px;
+    right: 20px;
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.95) 0%, rgba(52, 211, 153, 0.9) 100%);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: #ffffff;
+    padding: 12px 18px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    z-index: 9999;
+    opacity: 0;
+    transform: translateY(10px) scale(0.9);
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    pointer-events: none;
+    box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+  }
+
+  .empty-state { 
+    text-align: center;
+    padding: 30px 10px;
+    color: var(--text-muted);
+    font-size: 12px;
+    animation: fadeIn 0.5s ease;
+  }
+  .empty-state .icon {
+    font-size: 32px;
+    margin-bottom: 8px;
+    animation: bounce 2s ease-in-out infinite;
+  }
+  @keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+  }
+
+  /* LOADING SPINNER */
+  .loading { 
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border);
+    border-radius: 50%;
+    border-top-color: var(--green);
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { 
+    to { transform: rotate(360deg); }
+  }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<!-- Navigation Navbar -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top shadow-sm" style="background: linear-gradient(135deg, #1a472a 0%, #0d6e3f 100%) !important;">
+  <div class="container-fluid">
+    <a class="navbar-brand fw-bold" href="/" style="font-size: 1.3rem; color: #90EE90;">
+      <span style="color: #fff;">🌱 Green</span><span style="color: #90EE90;">Route</span>
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav ms-auto">
+        <li class="nav-item"><a class="nav-link active" href="/"><i class="fas fa-chart-line"></i> Dashboard</a></li>
+        <li class="nav-item"><a class="nav-link" href="/fleet"><i class="fas fa-truck"></i> Fleet</a></li>
+        <li class="nav-item"><a class="nav-link" href="/tracking"><i class="fas fa-location-dot"></i> Tracking</a></li>
+        <li class="nav-item"><a class="nav-link" href="/routes"><i class="fas fa-route"></i> Routes</a></li>
+        <li class="nav-item"><a class="nav-link" href="/scenarios"><i class="fas fa-chart-bar"></i> Scenarios</a></li>
+        <li class="nav-item"><a class="nav-link" href="/driver"><i class="fas fa-user-tie"></i> Driver</a></li>
+        <li class="nav-item ms-3"><span class="badge bg-success"><i class="fas fa-circle"></i> Active</span></li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🗺</div>
+    <div>
+      <h1>Green<span>Route</span></h1>
+      <small>Pune Smart Waste System</small>
+    </div>
+  </div>
+  <div class="header-actions">
+    <button type="button" class="btn btn-secondary" onclick="refreshAllData()" title="Reload bins, stats, and alerts">🔄 Refresh</button>
+    <div class="status-badge">API</div>
+    <div class="header-meta">
+      Dataset: <span id="header-dataset-ts">—</span><br>
+      <strong id="header-bin-count">0</strong> bins monitored across Pune
+    </div>
+  </div>
+</header>
+
+<div class="main">
+  <div class="sidebar">
+    <div class="sidebar-tabs">
+      <button class="tab-btn active" onclick="switchTab('overview')">Overview</button>
+      <button class="tab-btn" onclick="switchTab('route')">Route</button>
+      <button class="tab-btn" onclick="switchTab('simulation')">Simulation</button>
+      <button class="tab-btn" onclick="switchTab('bins')">Bins</button>
+    </div>
+
+    <div class="tab-content active" id="tab-overview">
+      <div class="stats-grid">
+        <div class="stat-card critical">
+          <div class="label">Critical</div>
+          <div class="value" id="stat-critical">91</div>
+          <div class="sub">Urgent collection needed</div>
+        </div>
+        <div class="stat-card high">
+          <div class="label">High</div>
+          <div class="value" id="stat-high">89</div>
+          <div class="sub">Close to full</div>
+        </div>
+        <div class="stat-card medium">
+          <div class="label">Medium</div>
+          <div class="value" id="stat-medium">90</div>
+          <div class="sub">Monitor these bins</div>
+        </div>
+        <div class="stat-card ok">
+          <div class="label">Low</div>
+          <div class="value" id="stat-low">130</div>
+          <div class="sub">Stable capacity</div>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-grid columns-2">
+          <div>
+            <h2>City snapshot</h2>
+            <div class="filter-row"><span>Dataset</span><strong id="header-dataset-ts">—</strong></div>
+            <div class="filter-row"><span>Total bins</span><strong id="header-bin-count">0</strong></div>
+          </div>
+          <div>
+            <h2>Fleet health</h2>
+            <div class="filter-row"><span>Routing load</span><strong id="stat-coverage">0</strong></div>
+            <div class="filter-row"><span>Simulation</span><strong id="stat-sim-status">stopped</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-card chart-card">
+        <h2>Fill trends</h2>
+        <canvas id="fillChart" width="280" height="150"></canvas>
+      </div>
+
+      <div class="section-card">
+        <h2>Live telemetry</h2>
+        <div class="telemetry-list" id="telemetry-list">
+          <div class="empty-state">Loading live telemetry...</div>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <h2>Quick actions</h2>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="switchTab('route');autoOptimize()">Auto-optimize routes</button>
+          <button class="btn btn-secondary" onclick="switchTab('simulation')">Open simulation</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-route">
+      <div class="section-card">
+        <h2>Route builder</h2>
+        <div class="section-grid">
+          <div class="filter-row"><label>Priority threshold</label>
+            <div><input type="range" id="thresh-slider" min="40" max="95" value="60" oninput="document.getElementById('thresh-val').textContent=this.value+'%'"><span class="range-val" id="thresh-val">60%</span></div>
+          </div>
+          <div class="filter-row"><label>Algorithm</label>
+            <select id="algo-select"><option value="nearest">Nearest</option><option value="priority" selected>Priority</option><option value="cluster">Cluster</option><option value="ga">Genetic</option><option value="multiobjective">Multi-objective</option><option value="adaptive">Adaptive</option></select>
+          </div>
+          <div class="filter-row"><label>Max stops</label>
+            <div><input type="range" id="stops-slider" min="5" max="50" value="20" oninput="document.getElementById('stops-val').textContent=this.value"><span class="range-val" id="stops-val">20</span></div>
+          </div>
+          <div class="filter-row"><label>Trucks</label>
+            <select id="trucks-select"><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option></select>
+          </div>
+          <div class="btn-row"><button class="btn btn-primary" onclick="computeRoutes()">Compute routes</button><button class="btn btn-secondary" onclick="clearRoutes()">Clear</button></div>
+        </div>
+      </div>
+      <div class="section-card">
+        <h2>Route results</h2>
+        <div id="route-result">
+          <div class="empty-state"><div class="icon">🗺</div>Configure parameters and click <strong>Compute Routes</strong>.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-simulation">
+      <div class="section-card">
+        <h2>Simulation control</h2>
+        <div class="section-grid columns-2">
+          <div class="filter-row"><span>Status</span><strong id="sim-status">idle</strong></div>
+          <div class="filter-row"><span>Last update</span><strong id="sim-last-update">—</strong></div>
+          <div class="filter-row"><span>Iterations</span><strong id="sim-iterations">0</strong></div>
+          <div class="filter-row"><span>Telemetry</span><strong id="sim-telemetry-count">0</strong></div>
+          <div class="filter-row"><span>Bin updates</span><strong id="sim-bin-count">0</strong></div>
+          <div class="filter-row"><span>Errors</span><strong id="sim-error-count">0</strong></div>
+        </div>
+        <div class="section-grid columns-2" style="margin-top:14px;">
+          <div class="filter-row"><label>Interval (sec)</label><input type="number" id="sim-interval" min="0.2" step="0.2" value="1.0"></div>
+          <div class="filter-row"><label>Max iterations</label><input type="number" id="sim-iterations-input" min="0" step="1" value="0"></div>
+        </div>
+        <div class="btn-row" style="margin-top:18px;"><button class="btn btn-primary" onclick="startSimulation()">Start</button><button class="btn btn-secondary" onclick="stopSimulation()">Stop</button></div>
+      </div>
+      <div class="section-card">
+        <h2>Simulation log</h2>
+        <div class="telemetry-list" id="simulation-log"><div class="empty-state">Simulation log will appear here</div></div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-bins">
+      <div class="section-card">
+        <h2>Bins explorer</h2>
+        <div class="bin-search"><span>🔍</span><input type="text" id="bin-search-input" placeholder="Search bin ID or filter..." oninput="filterBins(this.value)"></div>
+        <div class="btn-row" style="flex-wrap:wrap;margin-top:12px;"><button class="btn btn-secondary" onclick="filterByLevel('all')">All</button><button class="btn btn-secondary" onclick="filterByLevel('critical')">Critical</button><button class="btn btn-secondary" onclick="filterByLevel('high')">High</button><button class="btn btn-secondary" onclick="filterByLevel('medium')">Medium</button><button class="btn btn-secondary" onclick="filterByLevel('low')">Low</button></div>
+      </div>
+      <div class="bin-list" id="bin-list"></div>
+    </div>
+  </div>
+
+  <div class="map-wrap">
+    <div id="map"></div>
+    <div class="map-legend">
+      <strong>Bin fill level</strong>
+      <div class="legend-row"><div class="legend-dot" style="background:#f85149"></div> Critical ≥80%</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#d29922"></div> High 60–79%</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#e3b341"></div> Medium 40–59%</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#2ea043"></div> Low &lt;40%</div>
+      <div class="legend-row" style="margin-top:5px;"><div class="legend-dot" style="background:#388bfd;border-radius:3px;"></div> Depot / Truck</div>
+      <div class="legend-row" style="margin-top:6px;font-size:10px;color:var(--text-muted);">Pink ring = fill ≥ alert threshold</div>
+    </div>
+    <div class="route-overlay" id="route-overlay">
+      <div class="route-overlay-title">🚛 Active Route</div>
+      <div class="route-overlay-row">Stops: <span id="ov-stops">—</span></div>
+      <div class="route-overlay-row">Distance: <span id="ov-dist">—</span></div>
+      <div class="route-overlay-row">Priority bins: <span id="ov-priority">—</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="alert-ticker">
+  <strong>⚠ ALERTS</strong>
+  <div class="ticker-scroll" id="ticker">Loading alerts...</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================================
+// HOISTED STATE (var so inline onclick handlers can access before init)
+// ============================================================
+var markers = [];
+var routeLayers = [];
+var truckMarkers = {};
+var tickerInterval = null;
+var currentFilter = 'all';
+var currentSearch = '';
+var map = null;
+var fillChart = null;
+var sidebarCollapsed = false;
+
+// ============================================================
+// DATA
+// ============================================================
+let BINS_DATA = [];
+var alertBinIds = new Set();
+var filterMinFill = 0;
+var filterStatus = 'all';
+var alertThreshold = 80;
+
+// Depot location (central Pune)
+const DEPOT = { lat: 18.5204, lng: 73.8567, id: 'DEPOT' };
+
+// Truck colors
+const TRUCK_COLORS = ['#388bfd','#2ea043','#d29922'];
+
+let alertDebounce = null;
+function onAlertThresholdChange() {
+  clearTimeout(alertDebounce);
+  alertDebounce = setTimeout(async () => {
+    await fetchAlertsOnly();
+    if (map) renderMarkers(BINS_DATA);
+  }, 200);
+}
+
+async function apiGet(url) {
+  const r = await fetch(url, { headers: { Accept: 'application/json' } });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.statusText || 'Request failed');
+  return data;
+}
+
+async function fetchBinsQuery() {
+  const q = new URLSearchParams();
+  if (filterMinFill > 0) q.set('min_fill', String(filterMinFill));
+  if (filterStatus !== 'all') q.set('status', filterStatus);
+  const qs = q.toString();
+  const data = await apiGet('/api/bins' + (qs ? '?' + qs : ''));
+  BINS_DATA = data.bins || [];
+}
+
+async function fetchStats() {
+  const s = await apiGet('/api/stats');
+  document.getElementById('stat-critical').textContent = s.critical;
+  document.getElementById('stat-high').textContent = s.high;
+  document.getElementById('stat-medium').textContent = s.medium;
+  document.getElementById('stat-low').textContent = s.low;
+  document.getElementById('stat-overflow').textContent = s.overflow;
+  document.getElementById('stat-fuel').textContent = s.fuel_save_estimate_pct + '%';
+  document.getElementById('stat-trucks').textContent = s.trucks_active;
+  document.getElementById('stat-predicted-critical').textContent = '—';
+  document.getElementById('header-dataset-ts').textContent = s.dataset_timestamp || '—';
+  document.getElementById('header-bin-count').textContent = s.total_bins;
+}
+
+async function fetchForecastStats() {
+  try {
+    const f = await apiGet('/api/forecast?hours=24');
+    document.getElementById('stat-predicted-critical').textContent = f.predicted_critical_bins;
+  } catch (e) {
+    document.getElementById('stat-predicted-critical').textContent = '—';
+  }
+}
+
+async function fetchAlertsOnly() {
+  alertThreshold = parseInt(document.getElementById('alert-thresh-slider').value, 10) || 80;
+  const a = await apiGet('/api/alerts?threshold=' + alertThreshold);
+  alertBinIds = new Set((a.bins || []).map(b => b.id));
+}
+
+async function fetchTelemetryLive() {
+  try {
+    const data = await apiGet('/api/telemetry/recent');
+    renderTelemetryPanel(data.telemetry || []);
+  } catch (e) {
+    const el = document.getElementById('telemetry-list');
+    el.innerHTML = '<div class="empty-state">Live telemetry unavailable</div>';
+  }
+}
+
+async function fetchSimulationStatus() {
+  try {
+    const status = await apiGet('/api/simulation/status');
+    renderSimulationStatus(status);
+  } catch (e) {
+    const panel = document.getElementById('sim-status');
+    panel.textContent = 'unavailable';
+  }
+}
+
+function renderSimulationStatus(status) {
+  const simState = status.active ? 'running' : 'stopped';
+  document.getElementById('sim-status').textContent = simState;
+  document.getElementById('stat-sim-status').textContent = simState;
+  document.getElementById('sim-last-update').textContent = status.last_update_at || '—';
+  document.getElementById('sim-iterations').textContent = status.iterations;
+  document.getElementById('sim-telemetry-count').textContent = status.total_telemetry_sent;
+  document.getElementById('sim-bin-count').textContent = status.total_bin_updates_sent;
+  document.getElementById('sim-error-count').textContent = status.error_count;
+  const logEl = document.getElementById('simulation-log');
+  if (!status.events || status.events.length === 0) {
+    logEl.innerHTML = '<div class="empty-state">Simulation log will appear here</div>';
+    return;
+  }
+  logEl.innerHTML = status.events.slice(-10).map(line => `<div class="telemetry-item" style="padding:8px;">${line}</div>`).join('');
+}
+
+async function startSimulation() {
+  try {
+    const interval = parseFloat(document.getElementById('sim-interval').value) || 1.0;
+    const maxIterations = parseInt(document.getElementById('sim-iterations-input').value, 10) || 0;
+    const data = { interval_seconds: interval, max_iterations: maxIterations };
+    const response = await fetch('/api/simulation/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      showToast('⚠ ' + (result.error || 'Failed to start simulation'));
+      return;
+    }
+    showToast('Simulation started');
+    renderSimulationStatus(result.status || {});
+  } catch (e) {
+    showToast('⚠ Simulation start failed');
+  }
+}
+
+async function stopSimulation() {
+  try {
+    const response = await fetch('/api/simulation/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' }
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      showToast('⚠ ' + (result.error || 'Failed to stop simulation'));
+      return;
+    }
+    showToast('Simulation stopping');
+    renderSimulationStatus(result.status || {});
+  } catch (e) {
+    showToast('⚠ Simulation stop failed');
+  }
+}
+
+function renderTelemetryPanel(records) {
+  const el = document.getElementById('telemetry-list');
+  if (!records || records.length === 0) {
+    el.innerHTML = '<div class="empty-state">No telemetry received yet</div>';
+    clearTruckMarkers();
+    return;
+  }
+  el.innerHTML = records.map(rec => {
+    return `<div class="telemetry-item">
+      <div class="left">
+        <div><span class="label">Truck</span> <span class="value">${rec.truck_id || '—'}</span></div>
+        <div><span class="label">Driver</span> <span class="value">${rec.driver_id || 'n/a'}</span></div>
+        <div><span class="label">Speed</span> <span class="value">${rec.speed_kmh != null ? rec.speed_kmh.toFixed(1) + ' km/h' : '—'}</span></div>
+        <div><span class="label">Fuel</span> <span class="value">${rec.fuel_consumption_liters_per_km != null ? rec.fuel_consumption_liters_per_km.toFixed(2) + ' L/km' : '—'}</span></div>
+      </div>
+      <div class="right">
+        <div>${rec.recorded_at ? new Date(rec.recorded_at).toLocaleTimeString() : '—'}</div>
+        <div>${rec.gps_latitude != null ? rec.gps_latitude.toFixed(4) : '—'}, ${rec.gps_longitude != null ? rec.gps_longitude.toFixed(4) : '—'}</div>
+        <div>Engine ${rec.engine_temp_celsius != null ? rec.engine_temp_celsius.toFixed(1) + '°C' : '—'}</div>
+      </div>
+    </div>`;
+  }).join('');
+  updateTruckMarkers(records);
+}
+
+async function refreshAllData(silent = false) {
+  const refreshBtn = document.querySelector('button[onclick="refreshAllData()"]');
+  if (refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.innerHTML = '<span class="loading"></span> Refreshing...';
+  }
+  try {
+    await fetchStats();
+    await fetchForecastStats();
+    await fetchAlertsOnly();
+    await fetchBinsQuery();
+    await fetchTelemetryLive();
+    await fetchSimulationStatus();
+    if (map) {
+      renderMarkers(BINS_DATA);
+      updateFillBar();
+      updateFillChart();
+      buildTicker();
+    }
+    if (!silent) showToast('✓ Data refreshed');
+  } catch (e) {
+    showToast('⚠ ' + (e.message || 'Refresh failed'));
+  } finally {
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.innerHTML = '🔄 Refresh';
+    }
+  }
+}
+
+function applyMapFilters() {
+  refreshAllData();
+}
+
+async function uploadCsv() {
+  const inp = document.getElementById('csv-upload');
+  if (!inp.files || !inp.files.length) {
+    showToast('Choose a CSV file first');
+    return;
+  }
+  const fd = new FormData();
+  fd.append('file', inp.files[0]);
+  try {
+    const r = await fetch('/api/bins/upload', { method: 'POST', body: fd });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      showToast('⚠ ' + (j.error || 'Upload failed'));
+      return;
+    }
+    showToast(j.message || 'Upload OK');
+    inp.value = '';
+    await refreshAllData(true);
+  } catch (e) {
+    showToast('⚠ ' + (e.message || 'Upload failed'));
+  }
+}
+
+// ============================================================
+// MARKER HELPERS
+// ============================================================
+function getBinColor(fill) {
+  if (fill >= 80) return '#f85149';
+  if (fill >= 60) return '#d29922';
+  if (fill >= 40) return '#e3b341';
+  return '#2ea043';
+}
+
+function getFillClass(fill) {
+  if (fill >= 80) return 'critical';
+  if (fill >= 60) return 'high';
+  if (fill >= 40) return 'medium';
+  return 'low';
+}
+
+function makeCircleMarker(bin) {
+  const color = getBinColor(bin.fill);
+  let r = bin.fill >= 80 ? 8 : bin.fill >= 60 ? 7 : 6;
+  const isAlert = alertBinIds.has(bin.id);
+  if (isAlert) r += 3;
+  const m = L.circleMarker([bin.lat, bin.lng], {
+    radius: r, fillColor: color, color: isAlert ? '#ff3366' : '#1e293b',
+    weight: isAlert ? 3 : 2, opacity: 1, fillOpacity: 0.92
+  });
+  m.bindPopup(makePopup(bin));
+  m.on('click', () => {
+    map.setView([bin.lat, bin.lng], 15, { animate: true });
+  });
+  return m;
+}
+
+function makePopup(bin) {
+  const color = getBinColor(bin.fill);
+  const statusLabel = bin.status === 1 ? '⚠ OVERFLOW' : '✓ Normal';
+  const statusColor = bin.status === 1 ? '#f85149' : '#2ea043';
+  return `<div style="min-width:160px">
+    <div class="popup-title">${bin.id}</div>
+    <div class="popup-row">Fill Level <span style="color:${color}">${bin.fill}%</span></div>
+    <div class="popup-row">Status <span style="color:${statusColor}">${statusLabel}</span></div>
+    <div class="popup-row">Lat <span>${bin.lat.toFixed(5)}</span></div>
+    <div class="popup-row">Lng <span>${bin.lng.toFixed(5)}</span></div>
+    <div class="popup-fill-bar"><div class="popup-fill-inner" style="width:${bin.fill}%;background:${color}"></div></div>
+  </div>`;
+}
+
+function clearTruckMarkers() {
+  Object.values(truckMarkers).forEach(marker => {
+    if (map && map.hasLayer(marker)) {
+      map.removeLayer(marker);
+    }
+  });
+  truckMarkers = {};
+}
+
+function makeTruckIcon(truckId, color) {
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:26px;height:26px;background:${color};border:2px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 0 10px ${color}88">🚛</div>`,
+    iconAnchor: [13, 13]
+  });
+}
+
+function makeTruckPopup(rec) {
+  const location = rec.gps_latitude != null && rec.gps_longitude != null
+    ? `${rec.gps_latitude.toFixed(5)}, ${rec.gps_longitude.toFixed(5)}`
+    : 'No GPS';
+  return `<div style="min-width:180px">
+    <div class="popup-title">🚛 ${rec.truck_id || 'Truck'}</div>
+    <div class="popup-row">Driver <span>${rec.driver_id || 'n/a'}</span></div>
+    <div class="popup-row">Location <span>${location}</span></div>
+    <div class="popup-row">Speed <span>${rec.speed_kmh != null ? rec.speed_kmh.toFixed(1) + ' km/h' : '—'}</span></div>
+    <div class="popup-row">Fuel <span>${rec.fuel_consumption_liters_per_km != null ? rec.fuel_consumption_liters_per_km.toFixed(2) + ' L/km' : '—'}</span></div>
+    <div class="popup-row">Engine <span>${rec.engine_temp_celsius != null ? rec.engine_temp_celsius.toFixed(1) + '°C' : '—'}</span></div>
+  </div>`;
+}
+
+function updateTruckMarkers(records) {
+  if (!map) return;
+  const activeIds = new Set();
+  records.forEach((rec, index) => {
+    if (rec.gps_latitude == null || rec.gps_longitude == null) return;
+    const id = rec.truck_id || `truck-${index}`;
+    activeIds.add(id);
+    const color = TRUCK_COLORS[index % TRUCK_COLORS.length] || TRUCK_COLORS[0];
+    if (truckMarkers[id]) {
+      truckMarkers[id].setLatLng([rec.gps_latitude, rec.gps_longitude]);
+      truckMarkers[id].setPopupContent(makeTruckPopup(rec));
+    } else {
+      const marker = L.marker([rec.gps_latitude, rec.gps_longitude], { icon: makeTruckIcon(id, color) }).addTo(map);
+      marker.bindPopup(makeTruckPopup(rec));
+      truckMarkers[id] = marker;
+    }
+  });
+  Object.keys(truckMarkers).forEach(id => {
+    if (!activeIds.has(id)) {
+      const marker = truckMarkers[id];
+      if (map && map.hasLayer(marker)) map.removeLayer(marker);
+      delete truckMarkers[id];
+    }
+  });
+}
+
+// ============================================================
+// INIT — called after Leaflet loads
+// ============================================================
+function initApp() {
+  map = L.map('map', { zoomControl: true });
+  map.setView([18.535, 73.855], 12);
+
+  const osmAttr = '© <a href="https://www.openstreetmap.org/copyright">OSM</a> © <a href="https://carto.com/">CARTO</a>';
+  const tileOpts = { maxZoom: 19, subdomains: 'abcd' };
+  const baseLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    ...tileOpts, attribution: osmAttr
+  });
+  const baseVoyager = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    ...tileOpts, attribution: osmAttr
+  });
+  const baseDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    ...tileOpts, attribution: osmAttr
+  });
+  baseLight.addTo(map);
+  L.control.layers({
+    'Light (default)': baseLight,
+    'Streets & terrain': baseVoyager,
+    'Dark (night)': baseDark
+  }, null, { position: 'topright', collapsed: true }).addTo(map);
+
+  // Depot marker
+  const depotIcon = L.divIcon({
+    className: '',
+    html: `<div style="width:24px;height:24px;background:#388bfd;border:3px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 0 8px #388bfd66">🏭</div>`,
+    iconAnchor: [12, 12]
+  });
+  L.marker([DEPOT.lat, DEPOT.lng], { icon: depotIcon })
+    .bindPopup('<div class="popup-title">🏭 Waste Collection Depot</div><div style="font-size:11px;color:#8b949e">Central Pune Hub<br>All trucks start & end here</div>')
+    .addTo(map);
+
+  requestAnimationFrame(() => {
+    map.invalidateSize();
+  });
+  refreshAllData(true).catch(e => {
+    showToast('⚠ Open this app via Flask (python app.py) — ' + (e.message || 'API error'));
+  });
+
+  // Initialize fill chart
+  initFillChart();
+
+  // Poll live telemetry and simulation status every 5 seconds while the app is open
+  setInterval(() => {
+    fetchTelemetryLive();
+    fetchSimulationStatus();
+  }, 5000);
+}
+
+function toggleSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const toggleBtn = document.querySelector('.sidebar-toggle');
+  sidebarCollapsed = !sidebarCollapsed;
+  if (sidebarCollapsed) {
+    sidebar.classList.add('collapsed');
+    toggleBtn.textContent = '▶';
+  } else {
+    sidebar.classList.remove('collapsed');
+    toggleBtn.textContent = '◀';
+  }
+  // Invalidate map size after sidebar toggle
+  setTimeout(() => {
+    if (map) map.invalidateSize();
+  }, 300);
+}
+
+// ============================================================
+// FILL CHART
+// ============================================================
+function initFillChart() {
+  const ctx = document.getElementById('fillChart').getContext('2d');
+  fillChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Fill %',
+        data: [],
+        backgroundColor: 'rgba(46, 160, 67, 0.6)',
+        borderColor: 'rgba(46, 160, 67, 1)',
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          beginAtZero: true,
+          max: 100,
+          ticks: { color: '#e6edf3' }
+        },
+        x: {
+          ticks: { color: '#e6edf3', maxTicksLimit: 10 }
+        }
+      },
+      plugins: {
+        legend: { display: false }
+      }
+    }
+  });
+  updateFillChart();
+}
+
+function updateFillChart() {
+  if (!fillChart) return;
+  const bins = BINS_DATA.slice(0, 20); // Top 20 bins
+  fillChart.data.labels = bins.map(b => b.id);
+  fillChart.data.datasets[0].data = bins.map(b => b.fill_percentage);
+  fillChart.update();
+}
+
+// ============================================================
+// RENDER ALL MARKERS
+// ============================================================
+function renderMarkers(bins) {
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+  bins.forEach(bin => {
+    const m = makeCircleMarker(bin);
+    m.addTo(map);
+    markers.push(m);
+  });
+}
+
+// ============================================================
+// DISTANCE CALC (Haversine km)
+// ============================================================
+function dist(a, b) {
+  const R = 6371, dLat = (b.lat - a.lat) * Math.PI / 180, dLng = (b.lng - a.lng) * Math.PI / 180;
+  const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+}
+
+// ============================================================
+// COMPUTE ROUTES (server /api/route)
+// ============================================================
+async function computeRoutes() {
+  const thresh = parseInt(document.getElementById('thresh-slider').value, 10);
+  const algo = document.getElementById('algo-select').value;
+  const maxStops = parseInt(document.getElementById('stops-slider').value, 10);
+  const numTrucks = parseInt(document.getElementById('trucks-select').value, 10);
+
+  clearRoutes();
+  try {
+    const adaptive = document.getElementById('adaptive-toggle').checked;
+    const r = await fetch('/api/route', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        threshold: thresh,
+        algorithm: algo,
+        max_stops: maxStops,
+        num_trucks: numTrucks,
+        adaptive: adaptive
+      })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      showToast('⚠ ' + (data.error || 'Route request failed'));
+      return;
+    }
+    const routes = data.routes || [];
+    const skipped = data.skipped || [];
+    const distKm = data.distances_km || [];
+
+    routes.forEach((route, i) => {
+      if (!route || route.length === 0) return;
+      const color = TRUCK_COLORS[i % TRUCK_COLORS.length];
+      const coords = [[DEPOT.lat, DEPOT.lng], ...route.map(b => [b.lat, b.lng]), [DEPOT.lat, DEPOT.lng]];
+      const line = L.polyline(coords, { color, weight: 3, opacity: 0.85 });
+      line.addTo(map);
+      routeLayers.push(line);
+    });
+
+    if (routeLayers.length > 0) {
+      const allCoords = routeLayers.flatMap(l => l.getLatLngs());
+      if (allCoords.length > 0) map.fitBounds(L.latLngBounds(allCoords.map(c => [c.lat, c.lng])).pad(0.1));
+    }
+
+    renderRouteResults(routes, thresh, skipped, distKm);
+    const totalStops = routes.reduce((s, rr) => s + (rr ? rr.length : 0), 0);
+    document.getElementById('stat-coverage').textContent = totalStops;
+    showToast(`✓ ${routes.filter(r => r && r.length).length} route(s) · ${totalStops} stops` + (skipped.length ? ` · ${skipped.length} skipped` : ''));
+  } catch (e) {
+    showToast('⚠ ' + (e.message || 'Route failed'));
+  }
+}
+
+function routeDistance(route) {
+  let total = dist(DEPOT, route[0]);
+  for (let i = 0; i < route.length - 1; i++) total += dist(route[i], route[i+1]);
+  total += dist(route[route.length-1], DEPOT);
+  return total;
+}
+
+function renderRouteResults(routes, thresh, skipped, distKm) {
+  skipped = skipped || [];
+  distKm = distKm || [];
+  const el = document.getElementById('route-result');
+  const header = document.getElementById('route-result-header');
+  header.textContent = `Route Results (thresh ≥${thresh}%)`;
+
+  const nonEmpty = (routes || []).filter(r => r && r.length > 0);
+  if (nonEmpty.length === 0) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">🔍</div>No bins found above threshold</div>';
+    return;
+  }
+
+  let html = '';
+  routes.forEach((route, i) => {
+    if (!route || route.length === 0) return;
+    const color = TRUCK_COLORS[i % TRUCK_COLORS.length];
+    const d = typeof distKm[i] === 'number' ? distKm[i] : routeDistance(route);
+    const critCount = route.filter(b => b.fill >= 80).length;
+
+    html += `<div class="route-summary" style="border-color:${color}33;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-weight:700;font-size:12px;color:${color}">🚛 Truck ${i+1}</span>
+        <span style="font-size:10px;color:var(--text-muted)">${route.length} stops</span>
+      </div>
+      <div class="route-meta">
+        <div class="route-meta-item"><div class="val" style="color:${color}">${route.length}</div><div class="lbl">Stops</div></div>
+        <div class="route-meta-item"><div class="val" style="color:${color}">${d.toFixed(1)}</div><div class="lbl">km total</div></div>
+        <div class="route-meta-item"><div class="val" style="color:#f85149">${critCount}</div><div class="lbl">Critical</div></div>
+        <div class="route-meta-item"><div class="val" style="color:#2ea043">${(d / route.length).toFixed(1)}</div><div class="lbl">km/stop avg</div></div>
+      </div>
+      <div class="route-stops">
+        <div class="route-stop"><div class="stop-num stop-depot" style="background:${color}">D</div><div class="stop-id">DEPOT (Start)</div><div class="stop-dist"></div></div>`;
+
+    let prevPoint = DEPOT;
+    route.forEach((bin, j) => {
+      const d = dist(prevPoint, bin);
+      const cls = getFillClass(bin.fill);
+      const stopColor = getBinColor(bin.fill);
+      html += `<div class="route-stop" onclick="focusBin('${bin.id}')" style="cursor:pointer;">
+        <div class="stop-num" style="background:${stopColor};color:${bin.fill>=60?'#fff':'#000'}">${j+1}</div>
+        <div class="stop-id">${bin.id}</div>
+        <div class="stop-fill" style="color:${stopColor}">${bin.fill}%</div>
+        <div class="stop-dist">+${d.toFixed(1)}km</div>
+      </div>`;
+      prevPoint = bin;
+    });
+
+    const retDist = dist(prevPoint, DEPOT);
+    html += `<div class="route-stop"><div class="stop-num stop-depot" style="background:${color}">D</div><div class="stop-id">DEPOT (Return)</div><div class="stop-dist">+${retDist.toFixed(1)}km</div></div>`;
+    html += `</div></div>`;
+  });
+
+  if (skipped.length > 0) {
+    const show = skipped.slice(0, 25);
+    html += `<div class="route-summary" style="border-color:#f8514966;margin-top:10px;">
+      <div style="font-weight:700;font-size:11px;color:var(--red-light);margin-bottom:6px;">⚠ Skipped (${skipped.length}) — eligible but not assigned (capacity)</div>
+      <div style="font-size:10px;color:var(--text-muted);max-height:120px;overflow-y:auto;">${show.map(b => b.id + ' (' + b.fill + '%)').join(' · ')}${skipped.length > 25 ? ' …' : ''}</div>
+    </div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+function focusBin(id) {
+  const bin = BINS_DATA.find(b => b.id === id);
+  if (!bin) return;
+  map.setView([bin.lat, bin.lng], 16, { animate: true });
+}
+
+function clearRoutes() {
+  routeLayers.forEach(l => map.removeLayer(l));
+  routeLayers = [];
+  document.getElementById('route-overlay').classList.remove('visible');
+  document.getElementById('stat-coverage').textContent = '0';
+}
+
+function autoOptimize() {
+  document.getElementById('thresh-slider').value = 60;
+  document.getElementById('thresh-val').textContent = '60%';
+  document.getElementById('algo-select').value = 'priority';
+  document.getElementById('stops-slider').value = 25;
+  document.getElementById('stops-val').textContent = '25';
+  document.getElementById('trucks-select').value = '3';
+  setTimeout(computeRoutes, 100);
+}
+
+// ============================================================
+// BINS LIST
+// ============================================================
+function renderBinList() {
+  const list = document.getElementById('bin-list');
+  let filtered = BINS_DATA;
+  
+  if (currentFilter !== 'all') {
+    const ranges = { critical: [80,100], high: [60,79], medium: [40,59], low: [0,39] };
+    const [lo, hi] = ranges[currentFilter];
+    filtered = filtered.filter(b => b.fill >= lo && b.fill <= hi);
+  }
+  
+  if (currentSearch) {
+    filtered = filtered.filter(b => b.id.toLowerCase().includes(currentSearch.toLowerCase()));
+  }
+
+  // Sort by fill desc
+  filtered = [...filtered].sort((a, b) => b.fill - a.fill);
+
+  list.innerHTML = filtered.slice(0, 100).map(bin => {
+    const color = getBinColor(bin.fill);
+    return `<div class="bin-item" onclick="focusBin('${bin.id}')">
+      <div class="bin-dot" style="background:${color}"></div>
+      <div class="bin-info">
+        <div class="id">${bin.id}</div>
+        <div class="loc">${bin.lat.toFixed(4)}, ${bin.lng.toFixed(4)}</div>
+      </div>
+      <div class="fill-pill" style="background:${color}22;color:${color}">${bin.fill}%</div>
+    </div>`;
+  }).join('') + (filtered.length > 100 ? `<div class="empty-state" style="padding:10px;"><small>Showing 100 of ${filtered.length} bins</small></div>` : '');
+}
+
+function filterBins(val) { currentSearch = val; renderBinList(); }
+function filterByLevel(level) { currentFilter = level; renderBinList(); }
+
+// ============================================================
+// TABS
+// ============================================================
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.querySelector(`.tab-btn[onclick="switchTab('${name}')"]`).classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+  if (name === 'bins') renderBinList();
+}
+
+// ============================================================
+// FILL BAR
+// ============================================================
+function updateFillBar() {
+  // Fill bar visualization disabled - no UI elements for this
+}
+
+// ============================================================
+// ALERT TICKER
+// ============================================================
+function buildTicker() {
+  const critical = BINS_DATA.filter(b => b.status === 1).sort((a,b) => b.fill - a.fill);
+  const msgs = critical.length
+    ? critical.slice(0, 15).map(b => `⚠ ${b.id}: ${b.fill}% OVERFLOW`).join('  ·  ')
+    : 'No overflow flags in current map data';
+  const el = document.getElementById('ticker');
+  el.textContent = msgs + '   ';
+  if (tickerInterval) clearInterval(tickerInterval);
+  let pos = 0;
+  tickerInterval = setInterval(() => {
+    pos -= 1;
+    if (pos < -(msgs.length * 7)) pos = 0;
+    el.style.transform = `translateX(${pos}px)`;
+  }, 30);
+}
+
+// ============================================================
+// TOAST
+// ============================================================
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ============================================================
+// DYNAMIC LEAFLET LOADER
+// ============================================================
+(function() {
+  const script = document.createElement('script');
+  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+  script.onload = function() { initApp(); };
+  script.onerror = function() {
+    document.getElementById('map').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#f85149;font-size:14px;">⚠ Map failed to load. Check network connection.</div>';
+  };
+  document.head.appendChild(script);
+})();
+</script>
+
+<footer>
+  GreenRoute — Smart Waste Collection Optimizer | Built with Flask & Leaflet | Real-time IoT Simulation
+</footer>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Navbar Active Link Script -->
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const currentPath = window.location.pathname;
+    const navLinks = document.querySelectorAll('.navbar-nav .nav-link');
+    navLinks.forEach(link => {
+      const href = link.getAttribute('href');
+      if (href === currentPath || (href === '/' && currentPath === '/')) {
+        link.classList.add('active');
+      } else {
+        link.classList.remove('active');
+      }
+    });
+  });
+</script>
+
+<!-- Navbar Styling -->
+<style>
+  .navbar-nav .nav-link {
+    color: #fff !important;
+    transition: 0.3s;
+  }
+  
+  .navbar-nav .nav-link:hover {
+    color: #90EE90 !important;
+    border-bottom: 2px solid #90EE90;
+  }
+  
+  .navbar-nav .nav-link.active {
+    color: #90EE90 !important;
+    border-bottom: 3px solid #90EE90;
+  }
+  
+  @media (max-width: 768px) {
+    .navbar-nav .nav-link {
+      padding: 0.5rem 0 !important;
+      margin: 0.5rem 0;
+    }
+  }
+</style>
+</body>
+</html>

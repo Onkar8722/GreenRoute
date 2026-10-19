@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fleet Management - GreenRoute</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f1419; color: #e0e0e0; }
+        .header { background: linear-gradient(135deg, #1db954 0%, #1ed760 100%); color: white; padding: 20px 40px; }
+        .tabs { display: flex; gap: 0; background: #1a1f2e; border-bottom: 1px solid #2a3f5f; }
+        .tab { padding: 15px 30px; cursor: pointer; border: none; background: none; color: #a0a0a0; font-weight: 600; transition: all 0.2s; }
+        .tab:hover { background: #252d3a; color: #1db954; }
+        .tab.active { color: white; border-bottom: 3px solid #1db954; }
+        .container { padding: 20px 40px; max-width: 2000px; margin: 0 auto; }
+        .content { display: none; }
+        .content.active { display: block; }
+        
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .card { background: #1a1f2e; border: 1px solid #2a3f5f; border-radius: 8px; padding: 20px; }
+        .card h3 { color: #1db954; margin-bottom: 15px; }
+        
+        .vehicle-item { background: #252d3a; padding: 15px; border-radius: 6px; margin-bottom: 10px; border-left: 4px solid #1db954; }
+        .vehicle-id { font-weight: 600; color: #1ed760; }
+        .vehicle-stat { font-size: 12px; color: #a0a0a0; margin: 5px 0; }
+        
+        .status-badge { display: inline-block; padding: 4px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+        .status-active { background: rgba(29, 185, 84, 0.2); color: #1db954; }
+        .status-stopped { background: rgba(255, 68, 68, 0.2); color: #ff4444; }
+        .status-idle { background: rgba(255, 187, 0, 0.2); color: #ffbb00; }
+        
+        #map { height: 500px; border-radius: 8px; border: 1px solid #2a3f5f; }
+        
+        .progress-bar { height: 8px; background: #2a3f5f; border-radius: 4px; overflow: hidden; margin: 10px 0; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #1db954, #1ed760); transition: width 0.3s; }
+        
+        .input-group { margin-bottom: 15px; }
+        .input-group label { display: block; font-size: 12px; color: #a0a0a0; margin-bottom: 5px; line-height: 1; }
+        .input-group input, .input-group select { width: 100%; padding: 10px; background: #252d3a; border: 1px solid #2a3f5f; color: #e0e0e0; border-radius: 4px; }
+        
+        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; transition: all 0.2s; }
+        .btn-primary { background: linear-gradient(135deg, #1db954 0%, #1ed760 100%); color: white; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(29, 185, 84, 0.4); }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        thead { background: #252d3a; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #2a3f5f; }
+        th { color: #1db954; font-weight: 600; }
+        tr:hover { background: #252d3a; }
+    </style>
+</head>
+<body>
+
+<!-- Navigation Navbar -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top shadow-sm" style="background: linear-gradient(135deg, #1a472a 0%, #0d6e3f 100%) !important;">
+  <div class="container-fluid">
+    <a class="navbar-brand fw-bold" href="/" style="font-size: 1.3rem; color: #90EE90;">
+      <span style="color: #fff;">🌱 Green</span><span style="color: #90EE90;">Route</span>
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav ms-auto">
+        <li class="nav-item"><a class="nav-link" href="/"><i class="fas fa-chart-line"></i> Dashboard</a></li>
+        <li class="nav-item"><a class="nav-link active" href="/fleet"><i class="fas fa-truck"></i> Fleet</a></li>
+        <li class="nav-item"><a class="nav-link" href="/tracking"><i class="fas fa-location-dot"></i> Tracking</a></li>
+        <li class="nav-item"><a class="nav-link" href="/routes"><i class="fas fa-route"></i> Routes</a></li>
+        <li class="nav-item"><a class="nav-link" href="/scenarios"><i class="fas fa-chart-bar"></i> Scenarios</a></li>
+        <li class="nav-item"><a class="nav-link" href="/driver"><i class="fas fa-user-tie"></i> Driver</a></li>
+        <li class="nav-item ms-3"><span class="badge bg-success"><i class="fas fa-circle"></i> Active</span></li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+    <div class="header">
+        <h1><i class="fas fa-users"></i> Fleet Management Dashboard</h1>
+    </div>
+
+    <div class="tabs">
+        <button class="tab active" data-tab="vehicles"><i class="fas fa-truck"></i> Active Vehicles</button>
+        <button class="tab" data-tab="schedule"><i class="fas fa-calendar"></i> Schedule Routes</button>
+        <button class="tab" data-tab="assignments"><i class="fas fa-tasks"></i> Route Assignments</button>
+        <button class="tab" data-tab="drivers"><i class="fas fa-id-card"></i> Drivers & Vehicles</button>
+    </div>
+
+    <div class="container">
+        <!-- Active Vehicles Tab -->
+        <div id="vehicles" class="content active">
+            <h2 style="margin-bottom: 20px; color: #1db954;">Real-Time Vehicle Tracking</h2>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <div id="map"></div>
+                </div>
+                <div>
+                    <h3 style="margin-bottom: 15px;">Active Vehicles (<span id="vehicleCount">0</span>)</h3>
+                    <div id="vehiclesList"></div>
+                    <button class="btn btn-primary" onclick="refreshVehicles()" style="margin-top: 15px;">🔄 Refresh</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Schedule Routes Tab -->
+        <div id="schedule" class="content">
+            <div class="card" style="max-width: 600px;">
+                <h3>Schedule New Routes</h3>
+                <div class="input-group">
+                    <label>Threshold Fill Level (%)</label>
+                    <input type="number" id="thresholdSchedule" min="0" max="100" value="60"/>
+                </div>
+                <div class="input-group">
+                    <label>Number of Vehicles</label>
+                    <input type="number" id="numVehicles" min="1" max="10" value="3"/>
+                </div>
+                <div class="input-group">
+                    <label>Max Stops per Route</label>
+                    <input type="number" id="maxStopsSchedule" min="5" max="50" value="20"/>
+                </div>
+                <button class="btn btn-primary" onclick="scheduleRoutes()" style="width: 100%;">
+                    <i class="fas fa-play"></i> Schedule Routes
+                </button>
+                <div id="scheduleResult" style="margin-top: 20px; display: none;"></div>
+            </div>
+        </div>
+
+        <!-- Route Assignments Tab -->
+        <div id="assignments" class="content">
+            <h3 style="margin-bottom: 15px;">Active Route Assignments</h3>
+            <table id="assignmentsTable">
+                <thead>
+                    <tr>
+                        <th>Assignment ID</th>
+                        <th>Driver</th>
+                        <th>Vehicle</th>
+                        <th>Route</th>
+                        <th>Distance (km)</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="assignmentsBody">
+                    <tr><td colspan="6" style="text-align: center; color: #a0a0a0;">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Drivers & Vehicles Tab -->
+        <div id="drivers" class="content">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div class="card">
+                    <h3>Add Driver</h3>
+                    <div class="input-group">
+                        <label>Driver Name</label>
+                        <input type="text" placeholder="John Doe"/>
+                    </div>
+                    <div class="input-group">
+                        <label>License Number</label>
+                        <input type="text" placeholder="DL-12345"/>
+                    </div>
+                    <div class="input-group">
+                        <label>Phone</label>
+                        <input type="tel" placeholder="+91 9999999999"/>
+                    </div>
+                    <button class="btn btn-primary">Add Driver</button>
+                </div>
+                
+                <div class="card">
+                    <h3>Add Vehicle</h3>
+                    <div class="input-group">
+                        <label>Vehicle Type</label>
+                        <select>
+                            <option>Truck</option>
+                            <option>Van</option>
+                            <option>Auto</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>License Plate</label>
+                        <input type="text" placeholder="MH-01-AB-1234"/>
+                    </div>
+                    <div class="input-group">
+                        <label>Capacity (liters)</label>
+                        <input type="number" placeholder="5000" value="5000"/>
+                    </div>
+                    <button class="btn btn-primary">Add Vehicle</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let map;
+        let vehicleMarkers = {};
+
+        // Initialize map
+        function initMap() {
+            map = L.map('map').setView([18.5204, 73.8567], 12);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap',
+                maxZoom: 19
+            }).addTo(map);
+        }
+
+        // Refresh active vehicles
+        async function refreshVehicles() {
+            try {
+                const res = await fetch('/api/fleet/active-vehicles');
+                const data = await res.json();
+                
+                document.getElementById('vehicleCount').textContent = data.count;
+                
+                // Clear previous markers
+                Object.values(vehicleMarkers).forEach(m => map.removeLayer(m));
+                vehicleMarkers = {};
+                
+                // Display vehicles list
+                let html = '';
+                data.vehicles.forEach((v, idx) => {
+                    const color = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9a825', '#98d8c8'][idx % 5];
+                    
+                    html += `
+                        <div class="vehicle-item">
+                            <div class="vehicle-id">${v.driver} (${v.license_plate})</div>
+                            <div class="vehicle-stat"><strong>Type:</strong> ${v.vehicle_type}</div>
+                            <div class="vehicle-stat"><strong>Current Bin:</strong> ${v.current_bin || 'N/A'}</div>
+                            <div class="vehicle-stat"><strong>Last Update:</strong> ${new Date(v.last_update).toLocaleTimeString()}</div>
+                            <span class="status-badge status-active">${v.status}</span>
+                        </div>
+                    `;
+                    
+                    // Add map marker
+                    const marker = L.circleMarker([v.latitude, v.longitude], {
+                        radius: 10,
+                        fillColor: color,
+                        color: 'white',
+                        weight: 2,
+                        opacity: 1,
+                        fillOpacity: 0.8
+                    }).addTo(map).bindPopup(`<b>${v.driver}</b><br>${v.license_plate}`);
+                    
+                    vehicleMarkers[v.assignment_id] = marker;
+                });
+                
+                document.getElementById('vehiclesList').innerHTML = html || '<p style="color: #a0a0a0;">No active vehicles</p>';
+                
+            } catch(e) {
+                console.error('Error:', e);
+            }
+        }
+
+        // Schedule routes
+        async function scheduleRoutes() {
+            try {
+                const threshold = parseInt(document.getElementById('thresholdSchedule').value);
+                const numVehicles = parseInt(document.getElementById('numVehicles').value);
+                const maxStops = parseInt(document.getElementById('maxStopsSchedule').value);
+                
+                // Get optimized routes first
+                const routesRes = await fetch('/api/route', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        threshold,
+                        num_trucks: numVehicles,
+                        max_stops: maxStops,
+                        algorithm: 'ga'
+                    })
+                });
+                
+                const routesData = await routesRes.json();
+                
+                // Schedule them
+                const result = await fetch('/api/fleet/schedule', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        routes: routesData.routes,
+                        drivers: [{driver_id: 'D01', name: 'Driver 1'}, {driver_id: 'D02', name: 'Driver 2'}, {driver_id: 'D03', name: 'Driver 3'}],
+                        vehicles: [{vehicle_id: 'V01', license_plate: 'MH-01-AB-1234'}, {vehicle_id: 'V02', license_plate: 'MH-01-AB-1235'}, {vehicle_id: 'V03', license_plate: 'MH-01-AB-1236'}]
+                    })
+                });
+                
+                const resultData = await result.json();
+                
+                const resultHtml = `
+                    <div style="background: #2a3a2a; border: 1px solid #44ff44; color: #99ff99; padding: 15px; border-radius: 4px;">
+                        <h4>✅ Routes Scheduled Successfully</h4>
+                        <p><strong>Total Distance:</strong> ${resultData.total_distance_km} km</p>
+                        <p><strong>Total Time:</strong> ${resultData.total_time_minutes} minutes</p>
+                        <p><strong>Estimated Cost:</strong> $${resultData.total_cost_estimate}</p>
+                        <p><strong>Routes Created:</strong> ${resultData.assignments.length}</p>
+                    </div>
+                `;
+                
+                document.getElementById('scheduleResult').innerHTML = resultHtml;
+                document.getElementById('scheduleResult').style.display = 'block';
+                
+            } catch(e) {
+                console.error('Error:', e);
+                document.getElementById('scheduleResult').innerHTML = `<div style="background: #3a2a2a; border: 1px solid #ff4444; color: #ff9999; padding: 15px; border-radius: 4px;">Error: ${e.message}</div>`;
+                document.getElementById('scheduleResult').style.display = 'block';
+            }
+        }
+
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
+                
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.tab).classList.add('active');
+            });
+        });
+
+        // Initialize
+        window.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            refreshVehicles();
+            setInterval(refreshVehicles, 5000);
+        });
+    </script>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Navbar Active Link Script -->
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const currentPath = window.location.pathname;
+    const navLinks = document.querySelectorAll('.navbar-nav .nav-link');
+    navLinks.forEach(link => {
+      const href = link.getAttribute('href');
+      if (href === currentPath || (href === '/' && currentPath === '/')) {
+        link.classList.add('active');
+      } else {
+        link.classList.remove('active');
+      }
+    });
+  });
+</script>
+
+<!-- Navbar Styling -->
+<style>
+  .navbar-nav .nav-link {
+    color: #fff !important;
+    transition: 0.3s;
+  }
+  
+  .navbar-nav .nav-link:hover {
+    color: #90EE90 !important;
+    border-bottom: 2px solid #90EE90;
+  }
+  
+  .navbar-nav .nav-link.active {
+    color: #90EE90 !important;
+    border-bottom: 3px solid #90EE90;
+  }
+  
+  @media (max-width: 768px) {
+    .navbar-nav .nav-link {
+      padding: 0.5rem 0 !important;
+      margin: 0.5rem 0;
+    }
+  }
+</style>
+</body>
+</html>

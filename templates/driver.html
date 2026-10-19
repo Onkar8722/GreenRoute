@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Driver Mobile App - GreenRoute</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f1419; color: #e0e0e0; height: 100vh; overflow: hidden; }
+        .mobile-frame { max-width: 400px; height: 100vh; margin: 0 auto; background: #1a1f2e; display: flex; flex-direction: column; box-shadow: 0 0 40px rgba(0,0,0,0.8); border-radius: 20px; overflow: hidden; }
+        
+        .status-bar { background: linear-gradient(135deg, #1db954 0%, #1ed760 100%); color: white; padding: 10px 20px; display: flex; justify-content: space-between;align-items: center; font-size: 12px; }
+        .header-bar { background: #252d3a; padding: 15px 20px; border-bottom: 1px solid #2a3f5f; color: #1db954; font-weight: 600; }
+        
+        .content { flex: 1; overflow-y: auto; padding: 15px; }
+        .screen { display: none; }
+        .screen.active { display: block; }
+        
+        .route-card { background: linear-gradient(135deg, #1db954 0%, #1ed760 100%); color: white; padding: 20px; border-radius: 12px; margin-bottom: 15px; }
+        .route-title { font-size: 18px; font-weight: 600; margin-bottom: 10px; }
+        .route-stat { display: flex; justify-content: space-between; font-size: 13px; margin: 8px 0; }
+        
+        .stop-item { background: #252d3a; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #1db954; }
+        .stop-num { display: inline-block; background: #1db954; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; margin-right: 10px; }
+        .stop-text { font-weight: 600; color: #1ed760; margin-bottom: 5px; }
+        .stop-fill { font-size: 13px; color: #a0a0a0; }
+        
+        .progress-section { margin: 15px 0; }
+        .progress-label { font-size: 12px; color: #a0a0a0; margin-bottom: 8px; }
+        .progress-bar { height: 12px; background: #2a3f5f; border-radius: 6px; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #1db954, #1ed760); width: 0%; transition: width 0.3s; }
+        
+        .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 15px 0; }
+        .btn { padding: 12px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .btn-primary { background: linear-gradient(135deg, #1db954 0%, #1ed760 100%); color: white; grid-column: 1 / 3; }
+        .btn-secondary { background: #252d3a; color: #1db954; border: 1px solid #1db954; }
+        
+        .info-box { background: #252d3a; padding: 12px; border-radius: 6px; margin: 10px 0; border-left: 3px solid #ffbb00; }
+        .info-title { font-weight: 600; color: #ffbb00; font-size: 12px; }
+        .info-text { font-size: 13px; color: #e0e0e0; margin-top: 5px; }
+        
+        .icon-row { display: flex; gap: 20px; justify-content: space-around; margin: 15px 0; padding: 15px; background: #252d3a; border-radius: 8px; }
+        .icon-box { text-align: center; }
+        .icon-val { font-size: 16px; font-weight: 600; color: #1db954; }
+        .icon-lbl { font-size: 11px; color: #a0a0a0; margin-top: 5px; }
+        
+        .tab-bar { display: flex; gap: 0; border-top: 1px solid #2a3f5f; background: #252d3a; }
+        .tab-btn { flex: 1; padding: 12px; border: none; background: none; color: #a0a0a0; font-weight: 600; cursor: pointer; border-top: 2px solid transparent; }
+        .tab-btn.active { color: #1db954; border-top-color: #1db954; }
+    </style>
+</head>
+<body>
+
+<!-- Navigation Navbar -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top shadow-sm" style="background: linear-gradient(135deg, #1a472a 0%, #0d6e3f 100%) !important;">
+  <div class="container-fluid">
+    <a class="navbar-brand fw-bold" href="/" style="font-size: 1.3rem; color: #90EE90;">
+      <span style="color: #fff;">🌱 Green</span><span style="color: #90EE90;">Route</span>
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav ms-auto">
+        <li class="nav-item"><a class="nav-link" href="/"><i class="fas fa-chart-line"></i> Dashboard</a></li>
+        <li class="nav-item"><a class="nav-link" href="/fleet"><i class="fas fa-truck"></i> Fleet</a></li>
+        <li class="nav-item"><a class="nav-link" href="/tracking"><i class="fas fa-location-dot"></i> Tracking</a></li>
+        <li class="nav-item"><a class="nav-link" href="/routes"><i class="fas fa-route"></i> Routes</a></li>
+        <li class="nav-item"><a class="nav-link" href="/scenarios"><i class="fas fa-chart-bar"></i> Scenarios</a></li>
+        <li class="nav-item"><a class="nav-link active" href="/driver"><i class="fas fa-user-tie"></i> Driver</a></li>
+        <li class="nav-item ms-3"><span class="badge bg-success"><i class="fas fa-circle"></i> Active</span></li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+    <div class="mobile-frame">
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <span>9:41</span>
+            <span><i class="fas fa-signal"></i> <i class="fas fa-wifi"></i> <i class="fas fa-battery-full"></i></span>
+        </div>
+
+        <!-- Header -->
+        <div class="header-bar">
+            <i class="fas fa-truck"></i> GreenRoute Driver
+        </div>
+
+        <!-- Content -->
+        <div class="content">
+            <!-- Assignment Screen -->
+            <div id="assignment" class="screen active">
+                <h2 style="color: #1db954; margin-bottom: 15px;">Route Assignment</h2>
+                <div class="route-card">
+                    <div class="route-title">Route #001</div>
+                    <div class="route-stat">
+                        <span>Distance:</span>
+                        <strong>45.2 km</strong>
+                    </div>
+                    <div class="route-stat">
+                        <span>Duration:</span>
+                        <strong>2 hours 30 min</strong>
+                    </div>
+                    <div class="route-stat">
+                        <span>Stops:</span>
+                        <strong>20 bins</strong>
+                    </div>
+                    <div class="route-stat">
+                        <span>Difficulty:</span>
+                        <strong style="color: #ffbb00;">Medium</strong>
+                    </div>
+                </div>
+                
+                <button class="btn btn-primary" onclick="switchScreen('tracking')">
+                    <i class="fas fa-play"></i> Start Route
+                </button>
+            </div>
+
+            <!-- Tracking Screen -->
+            <div id="tracking" class="screen">
+                <h2 style="color: #1db954; margin-bottom: 15px;">Stop #3 of 20</h2>
+                
+                <div class="progress-section">
+                    <div class="progress-label">Route Progress</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: 15%;"></div>
+                    </div>
+                    <div style="text-align: right; font-size: 11px; color: #a0a0a0;">3/20 stops completed</div>
+                </div>
+
+                <div class="stop-item">
+                    <div style="display: flex; align-items: flex-start;">
+                        <span class="stop-num">3</span>
+                        <div style="flex: 1;">
+                            <div class="stop-text">Bin PMC_098</div>
+                            <div class="stop-fill">📍 1.2 km away</div>
+                            <div class="stop-fill">Fill Level: <strong>87%</strong></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="icon-row">
+                    <div class="icon-box">
+                        <div class="icon-val">5.2 km</div>
+                        <div class="icon-lbl">Distance</div>
+                    </div>
+                    <div class="icon-box">
+                        <div class="icon-val">12 min</div>
+                        <div class="icon-lbl">ETA</div>
+                    </div>
+                    <div class="icon-box">
+                        <div class="icon-val">42.5%</div>
+                        <div class="icon-lbl">Truck Fill</div>
+                    </div>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-secondary" onclick="markCollected()">
+                        <i class="fas fa-check"></i> Mark Collected
+                    </button>
+                    <button class="btn btn-secondary" onclick="skipBin()">
+                        <i class="fas fa-skip"></i> Skip
+                    </button>
+                </div>
+
+                <div class="info-box">
+                    <div class="info-title">ℹ️ Next Stop</div>
+                    <div class="info-text">PMC_102 - 2.4 km away - Fill: 76%</div>
+                </div>
+
+                <button class="btn btn-primary" onclick="completeRoute()">
+                    <i class="fas fa-flag-checkered"></i> Complete Route
+                </button>
+            </div>
+
+            <!-- Summary Screen -->
+            <div id="summary" class="screen">
+                <h2 style="color: #1db954; margin-bottom: 15px;">Route Completed ✅</h2>
+                
+                <div class="route-card">
+                    <div class="route-title">Route #001 Complete</div>
+                    <div class="route-stat">
+                        <span>Bins Collected:</span>
+                        <strong>20/20</strong>
+                    </div>
+                    <div class="route-stat">
+                        <span>Actual Distance:</span>
+                        <strong>47.1 km</strong>
+                    </div>
+                    <div class="route-stat">
+                        <span>Actual Time:</span>
+                        <strong>2h 38min</strong>
+                    </div>
+                    <div class="route-stat">
+                        <span>Fuel Used:</span>
+                        <strong>6.2 L (↓8% saved)</strong>
+                    </div>
+                </div>
+
+                <div style="background: #2a3a2a; padding: 12px; border-radius: 8px; margin: 15px 0; border: 1px solid #44ff44;">
+                    <div style="color: #1db954; font-weight: 600; margin-bottom: 10px;">📊 Performance Score: 94/100</div>
+                    <div style="font-size: 12px; color: #a0a0a0;">Excellent route completion! Keep it up.</div>
+                </div>
+
+                <button class="btn btn-primary" onclick="switchScreen('assignment')">
+                    <i class="fas fa-home"></i> Return to Dashboard
+                </button>
+            </div>
+        </div>
+
+        <!-- Tab Bar -->
+        <div class="tab-bar">
+            <button class="tab-btn active" onclick="switchTab('assignment', this)">
+                <i class="fas fa-map"></i>
+            </button>
+            <button class="tab-btn" onclick="switchTab('messages', this)">
+                <i class="fas fa-envelope"></i>
+            </button>
+            <button class="tab-btn" onclick="switchTab('stats', this)">
+                <i class="fas fa-chart-bar"></i>
+            </button>
+            <button class="tab-btn" onclick="switchTab('settings', this)">
+                <i class="fas fa-cog"></i>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        function switchScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(screenId).classList.add('active');
+        }
+
+        function switchTab(tab, element) {
+            document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+            element.classList.add('active');
+        }
+
+        function markCollected() {
+            alert('✅ Bin collected!');
+        }
+
+        function skipBin() {
+            alert('⏭️ Skipped bin. Next stop: PMC_102');
+        }
+
+        function completeRoute() {
+            switchScreen('summary');
+        }
+    </script>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Navbar Active Link Script -->
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const currentPath = window.location.pathname;
+    const navLinks = document.querySelectorAll('.navbar-nav .nav-link');
+    navLinks.forEach(link => {
+      const href = link.getAttribute('href');
+      if (href === currentPath || (href === '/' && currentPath === '/')) {
+        link.classList.add('active');
+      } else {
+        link.classList.remove('active');
+      }
+    });
+  });
+</script>
+
+<!-- Navbar Styling -->
+<style>
+  .navbar-nav .nav-link {
+    color: #fff !important;
+    transition: 0.3s;
+  }
+  
+  .navbar-nav .nav-link:hover {
+    color: #90EE90 !important;
+    border-bottom: 2px solid #90EE90;
+  }
+  
+  .navbar-nav .nav-link.active {
+    color: #90EE90 !important;
+    border-bottom: 3px solid #90EE90;
+  }
+  
+  @media (max-width: 768px) {
+    .navbar-nav .nav-link {
+      padding: 0.5rem 0 !important;
+      margin: 0.5rem 0;
+    }
+  }
+</style>
+</body>
+</html>

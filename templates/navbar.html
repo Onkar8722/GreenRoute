@@ -1,0 +1,134 @@
+<!-- Navigation Header Component - Include in all pages -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top shadow-sm" style="background: linear-gradient(135deg, #1a472a 0%, #0d6e3f 100%) !important;">
+  <div class="container-fluid">
+    <!-- Brand/Logo -->
+    <a class="navbar-brand fw-bold" href="/" style="font-size: 1.5rem; color: #90EE90;">
+      <span style="color: #fff;">🌱 Green</span><span style="color: #90EE90;">Route</span>
+    </a>
+
+    <!-- Toggle Button for Mobile -->
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <!-- Navigation Links -->
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav ms-auto">
+        <!-- Dashboard -->
+        <li class="nav-item">
+          <a class="nav-link" href="/" style="color: #fff; transition: 0.3s;">
+            <i class="fas fa-chart-line"></i> Dashboard
+          </a>
+        </li>
+
+        <!-- Fleet Management -->
+        <li class="nav-item">
+          <a class="nav-link" href="/fleet" style="color: #fff; transition: 0.3s;">
+            <i class="fas fa-truck"></i> Fleet
+          </a>
+        </li>
+
+        <!-- Real-Time Tracking -->
+        <li class="nav-item">
+          <a class="nav-link" href="/tracking" style="color: #fff; transition: 0.3s;">
+            <i class="fas fa-location-dot"></i> Tracking
+          </a>
+        </li>
+
+        <!-- Route Optimizer -->
+        <li class="nav-item">
+          <a class="nav-link" href="/routes" style="color: #fff; transition: 0.3s;">
+            <i class="fas fa-route"></i> Routes
+          </a>
+        </li>
+
+        <!-- What-If Scenarios -->
+        <li class="nav-item">
+          <a class="nav-link" href="/scenarios" style="color: #fff; transition: 0.3s;">
+            <i class="fas fa-chart-bar"></i> Scenarios
+          </a>
+        </li>
+
+        <!-- Driver App -->
+        <li class="nav-item">
+          <a class="nav-link" href="/driver" style="color: #fff; transition: 0.3s;">
+            <i class="fas fa-user-tie"></i> Driver
+          </a>
+        </li>
+
+        <!-- Status Badge -->
+        <li class="nav-item ms-3">
+          <span class="badge bg-success" style="padding: 0.5rem 1rem; font-size: 0.9rem;">
+            <i class="fas fa-circle" style="font-size: 0.6rem; margin-right: 0.3rem;"></i>
+            <span id="status-indicator">Active</span>
+          </span>
+        </li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+<!-- Navbar Styling -->
+<style>
+  .navbar-nav .nav-link:hover {
+    color: #90EE90 !important;
+    border-bottom: 2px solid #90EE90;
+    transition: all 0.3s ease;
+  }
+
+  .navbar-nav .nav-link.active {
+    color: #90EE90 !important;
+    border-bottom: 3px solid #90EE90;
+  }
+
+  @media (max-width: 768px) {
+    .navbar-brand {
+      font-size: 1.2rem;
+    }
+    
+    .navbar-nav {
+      margin-top: 1rem;
+    }
+    
+    .navbar-nav .nav-link {
+      padding: 0.5rem 0.25rem;
+      margin: 0.5rem 0;
+    }
+  }
+</style>
+
+<!-- Navbar Script for Active Link Highlighting -->
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const currentPath = window.location.pathname;
+    const navLinks = document.querySelectorAll('.navbar-nav .nav-link');
+    
+    navLinks.forEach(link => {
+      const href = link.getAttribute('href');
+      if (href === currentPath || (href === '/' && currentPath === '/')) {
+        link.classList.add('active');
+      } else {
+        link.classList.remove('active');
+      }
+    });
+
+    // Update status indicator
+    fetch('/api/health')
+      .then(response => response.json())
+      .then(data => {
+        const indicator = document.getElementById('status-indicator');
+        if (data.status === 'healthy') {
+          indicator.textContent = 'Active';
+          indicator.parentElement.className = 'badge bg-success';
+        } else {
+          indicator.textContent = 'Alert';
+          indicator.parentElement.className = 'badge bg-warning';
+        }
+      })
+      .catch(() => {
+        const indicator = document.getElementById('status-indicator');
+        indicator.textContent = 'Offline';
+        indicator.parentElement.className = 'badge bg-danger';
+      });
+  });
+</script>

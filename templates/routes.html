@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GreenRoute - Route Optimizer</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f1419; color: #e0e0e0; }
+        
+        .header { background: linear-gradient(135deg, #1db954 0%, #1ed760 100%); color: white; padding: 20px 40px; }
+        .header h1 { font-size: 28px; margin-bottom: 10px; }
+        .header p { opacity: 0.9; }
+        
+        .container { display: grid; grid-template-columns: 350px 1fr; gap: 20px; padding: 20px; max-width: 2000px; margin: 0 auto; }
+        
+        .control-panel { background: #1a1f2e; border-radius: 8px; padding: 20px; border: 1px solid #2a3f5f; height: fit-content; position: sticky; top: 20px; }
+        .control-panel h2 { color: #1db954; margin-bottom: 15px; font-size: 18px; }
+        
+        .control-group { margin-bottom: 15px; }
+        .control-group label { display: block; color: #a0a0a0; font-size: 12px; margin-bottom: 5px; font-weight: 600; text-transform: uppercase; }
+        .control-group input, .control-group select { 
+            width: 100%; 
+            padding: 10px; 
+            background: #252d3a; 
+            border: 1px solid #2a3f5f; 
+            color: #e0e0e0; 
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .control-group input:focus, .control-group select:focus { 
+            outline: none; 
+            border-color: #1db954; 
+            box-shadow: 0 0 8px rgba(29, 185, 84, 0.3);
+        }
+        
+        .btn-optimize { 
+            width: 100%; 
+            padding: 12px; 
+            background: linear-gradient(135deg, #1db954 0%, #1ed760 100%); 
+            color: white; 
+            border: none; 
+            border-radius: 4px; 
+            font-weight: 600; 
+            cursor: pointer; 
+            font-size: 14px;
+            margin-top: 20px;
+            transition: transform 0.2s;
+        }
+        .btn-optimize:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(29, 185, 84, 0.4); }
+        .btn-optimize:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        
+        .stats-box { background: #252d3a; padding: 12px; border-radius: 4px; border-left: 3px solid #1db954; margin-bottom: 10px; }
+        .stats-box .lbl { font-size: 11px; color: #a0a0a0; }
+        .stats-box .val { font-size: 18px; font-weight: bold; color: #1db954; margin-top: 3px; }
+        
+        .map-view { display: flex; flex-direction: column; }
+        #map { height: 600px; border-radius: 8px; border: 1px solid #2a3f5f; }
+        
+        .info-panel { background: #1a1f2e; border-radius: 8px; padding: 20px; margin-top: 20px; border: 1px solid #2a3f5f; }
+        .info-panel h3 { color: #1db954; margin-bottom: 10px; }
+        
+        .route-list { display: grid; gap: 10px; }
+        .route-item { 
+            background: #252d3a; 
+            padding: 15px; 
+            border-radius: 4px; 
+            border-left: 4px solid #ff6b6b;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .route-item:hover { background: #2a334a; }
+        .route-item.active { border-left-color: #1db954; background: #273344; }
+        
+        .route-title { font-weight: 600; color: #1ed760; margin-bottom: 8px; }
+        .route-detail { font-size: 12px; color: #a0a0a0; margin-bottom: 4px; }
+        .route-detail strong { color: #e0e0e0; }
+        
+        .badge { display: inline-block; padding: 4px 8px; background: rgba(29, 185, 84, 0.2); color: #1db954; border-radius: 3px; font-size: 11px; margin-right: 5px; }
+        
+        .loading { text-align: center; color: #1db954; }
+        .spinner { border: 3px solid #2a3f5f; border-top: 3px solid #1db954; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto 10px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .error { background: #3a2a2a; border: 1px solid #ff4444; color: #ff9999; padding: 12px; border-radius: 4px; margin-bottom: 10px; }
+        .success { background: #2a3a2a; border: 1px solid #44ff44; color: #99ff99; padding: 12px; border-radius: 4px; margin-bottom: 10px; }
+        
+        .bins-summary { display: grid; grid-template-columns: auto 1fr; gap: 8px; font-size: 12px; }
+        .bins-summary > div { padding: 8px; background: #252d3a; border-radius: 3px; }
+        
+        @media (max-width: 1200px) { 
+            .container { grid-template-columns: 1fr; }
+            .control-panel { position: static; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Navigation Navbar -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top shadow-sm" style="background: linear-gradient(135deg, #1a472a 0%, #0d6e3f 100%) !important;">
+  <div class="container-fluid">
+    <a class="navbar-brand fw-bold" href="/" style="font-size: 1.3rem; color: #90EE90;">
+      <span style="color: #fff;">🌱 Green</span><span style="color: #90EE90;">Route</span>
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav ms-auto">
+        <li class="nav-item"><a class="nav-link" href="/"><i class="fas fa-chart-line"></i> Dashboard</a></li>
+        <li class="nav-item"><a class="nav-link" href="/fleet"><i class="fas fa-truck"></i> Fleet</a></li>
+        <li class="nav-item"><a class="nav-link" href="/tracking"><i class="fas fa-location-dot"></i> Tracking</a></li>
+        <li class="nav-item"><a class="nav-link active" href="/routes"><i class="fas fa-route"></i> Routes</a></li>
+        <li class="nav-item"><a class="nav-link" href="/scenarios"><i class="fas fa-chart-bar"></i> Scenarios</a></li>
+        <li class="nav-item"><a class="nav-link" href="/driver"><i class="fas fa-user-tie"></i> Driver</a></li>
+        <li class="nav-item ms-3"><span class="badge bg-success"><i class="fas fa-circle"></i> Active</span></li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+    <div class="header">
+        <h1><i class="fas fa-route"></i> Route Optimizer</h1>
+        <p>Optimize vehicle routes for waste collection using genetic algorithm</p>
+    </div>
+
+    <div class="container">
+        <!-- Control Panel -->
+        <div class="control-panel">
+            <h2><i class="fas fa-sliders-h"></i> Parameters</h2>
+            
+            <div class="control-group">
+                <label>Fill Level Threshold (%)</label>
+                <input type="range" id="threshold" min="0" max="100" value="60" step="5"/>
+                <div style="text-align: right; font-size: 12px; color: #1db954; margin-top: 3px;">
+                    <span id="thresholdVal">60</span>%
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label>Max Stops per Route</label>
+                <input type="number" id="maxStops" min="1" max="50" value="20"/>
+            </div>
+            
+            <div class="control-group">
+                <label>Population Size</label>
+                <input type="number" id="popSize" min="10" max="500" value="100"/>
+            </div>
+            
+            <div class="control-group">
+                <label>Generations</label>
+                <input type="number" id="generations" min="5" max="100" value="50"/>
+            </div>
+            
+            <div class="control-group">
+                <label>Upload New Bins Dataset (CSV)</label>
+                <input type="file" id="csvUpload" accept=".csv" />
+                <button class="btn btn-sm btn-outline-success mt-2 w-100" onclick="uploadCsv()"><i class="fas fa-upload"></i> Upload & Replace</button>
+            </div>
+            
+            <button class="btn-optimize" id="btnOptimize"><i class="fas fa-bolt"></i> Optimize Route</button>
+            
+            <div style="margin-top: 20px;">
+                <h3 style="color: #1db954; font-size: 14px; margin-bottom: 10px;">📊 Statistics</h3>
+                <div class="stats-box">
+                    <div class="lbl">Eligible Bins</div>
+                    <div class="val" id="statEligible">-</div>
+                </div>
+                <div class="stats-box">
+                    <div class="lbl">Avg Fill Level</div>
+                    <div class="val" id="statAvgFill">-</div>
+                </div>
+                <div class="stats-box">
+                    <div class="lbl">Critical Bins</div>
+                    <div class="val" id="statCritical">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Map & Results -->
+        <div class="map-view">
+            <div id="map"></div>
+            
+            <div class="info-panel">
+                <h3 id="resultTitle" style="display: none;">
+                    <i class="fas fa-check-circle"></i> Optimized Route
+                    <button class="btn btn-sm btn-outline-light float-end mb-2" onclick="exportRoute()"><i class="fas fa-download"></i> Export CSV</button>
+                </h3>
+                <div id="resultContent" style="display: none;">
+                    <div class="badges-row" style="margin-bottom: 15px;">
+                        <span class="badge" id="badgeDistance">Distance: -</span>
+                        <span class="badge" id="badgeTime">Time: -</span>
+                        <span class="badge" id="badgeEmissions">CO₂: -</span>
+                    </div>
+                    
+                    <div class="route-list" id="routeList"></div>
+                </div>
+                
+                <div id="loadingArea" style="display: none;">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <p>Optimizing route...</p>
+                    </div>
+                </div>
+                
+                <div id="errorArea" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let map;
+        let currentRouteMarkers = [];
+        let currentRoute = null;
+
+        // Initialize map
+        function initMap() {
+            map = L.map('map').setView([18.5204, 73.8567], 12);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap',
+                maxZoom: 19
+            }).addTo(map);
+        }
+
+        // Load bins and show statistics
+        async function loadBinStats() {
+            try {
+                const res = await fetch('/api/bins');
+                const data = await res.json();
+                const threshold = parseInt(document.getElementById('threshold').value);
+                const eligible = data.bins.filter(b => b.fill >= threshold);
+                const critical = data.bins.filter(b => b.fill >= 80).length;
+                const avgFill = (data.bins.reduce((a,b) => a + b.fill, 0) / data.bins.length).toFixed(1);
+                
+                document.getElementById('statEligible').textContent = eligible.length;
+                document.getElementById('statAvgFill').textContent = avgFill + '%';
+                document.getElementById('statCritical').textContent = critical;
+                
+                // Visualize all bins on map
+                map.eachLayer(layer => { if(layer.setLatLng) map.removeLayer(layer); });
+                
+                data.bins.forEach(bin => {
+                    const color = bin.fill >= 80 ? '#ff4444' : bin.fill >= 60 ? '#ffbb00' : '#1db954';
+                    L.circleMarker([bin.lat, bin.lng], {
+                        radius: 5,
+                        fillColor: color,
+                        color: color,
+                        weight: 1,
+                        opacity: 0.7,
+                        fillOpacity: 0.6
+                    }).addTo(map).bindPopup(`Bin ${bin.id}: ${bin.fill.toFixed(1)}%`);
+                });
+                
+                // Add depot
+                L.marker([18.5204, 73.8567], {
+                    icon: L.icon({
+                        iconUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMxZGI5NTQiIHN0cm9rZS13aWR0aD0iMiI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iOCIvPjwvc3ZnPg==',
+                        iconSize: [32, 32],
+                        iconAnchor: [16, 16]
+                    })
+                }).addTo(map).bindPopup('Depot').openPopup();
+                
+            } catch(e) {
+                console.error('Error loading bins:', e);
+            }
+        }
+
+        // Draw route on map
+        function drawRoute(binIds, pathGeometry) {
+            currentRouteMarkers.forEach(m => map.removeLayer(m));
+            currentRouteMarkers = [];
+            
+            // Get bin data
+            fetch('/api/bins').then(r => r.json()).then(data => {
+                const binMap = {};
+                data.bins.forEach(b => binMap[b.id] = b);
+                
+                const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9a825', '#98d8c8'];
+                let colorIdx = 0;
+                
+                // Draw route
+                let latlngs = [];
+                
+                if (pathGeometry && pathGeometry.length > 0) {
+                    // Use detailed OSMnx road geometry if available
+                    latlngs = pathGeometry;
+                } else {
+                    // Fallback to straight lines
+                    latlngs.push([18.5204, 73.8567]); // Start from depot
+                    binIds.forEach(id => {
+                        if(binMap[id]) {
+                            latlngs.push([binMap[id].lat, binMap[id].lng]);
+                        }
+                    });
+                    latlngs.push([18.5204, 73.8567]); // Return to depot
+                }
+                
+                // Draw polyline
+                const polyline = L.polyline(latlngs, {
+                    color: colors[colorIdx % colors.length],
+                    weight: 3,
+                    opacity: 0.8,
+                    dashArray: '5, 5'
+                }).addTo(map);
+                
+                map.fitBounds(polyline.getBounds());
+                
+                // Draw markers with numbers
+                binIds.forEach((id, idx) => {
+                    if(binMap[id]) {
+                        const marker = L.circleMarker([binMap[id].lat, binMap[id].lng], {
+                            radius: 12,
+                            fillColor: colors[colorIdx % colors.length],
+                            color: 'white',
+                            weight: 2,
+                            opacity: 1,
+                            fillOpacity: 0.9
+                        }).addTo(map);
+                        
+                        const label = L.label({
+                            position: [binMap[id].lat, binMap[id].lng],
+                            text: (idx + 1).toString(),
+                            className: 'route-label',
+                            permanent: true
+                        });
+                        
+                        marker.bindPopup(`Stop ${idx + 1}<br>Bin ${id}<br>Fill: ${binMap[id].fill.toFixed(1)}%`);
+                        currentRouteMarkers.push(marker);
+                    }
+                });
+                
+                // Add simple number labels
+                binIds.forEach((id, idx) => {
+                    if(binMap[id]) {
+                        const div = document.createElement('div');
+                        div.innerHTML = (idx + 1);
+                        div.style.cssText = `
+                            position: absolute;
+                            background: white;
+                            color: #1db954;
+                            width: 24px;
+                            height: 24px;
+                            border-radius: 50%;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            font-weight: bold;
+                            font-size: 12px;
+                            z-index: 1000;
+                        `;
+                    }
+                });
+            });
+        }
+
+        // Optimize route
+        async function optimizeRoute() {
+            const threshold = parseInt(document.getElementById('threshold').value);
+            const maxStops = parseInt(document.getElementById('maxStops').value);
+            const popSize = parseInt(document.getElementById('popSize').value);
+            const generations = parseInt(document.getElementById('generations').value);
+            
+            document.getElementById('loadingArea').style.display = 'block';
+            document.getElementById('resultContent').style.display = 'none';
+            document.getElementById('errorArea').style.display = 'none';
+            document.getElementById('btnOptimize').disabled = true;
+            
+            try {
+                const res = await fetch('/api/route/optimize-ga', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        threshold,
+                        max_stops: maxStops,
+                        population_size: popSize,
+                        generations
+                    })
+                });
+                
+                const result = await res.json();
+                
+                if (!res.ok) {
+                    throw new Error(result.error || 'Optimization failed');
+                }
+                
+                currentRoute = result;
+                
+                // Display results
+                document.getElementById('loadingArea').style.display = 'none';
+                document.getElementById('resultTitle').style.display = 'block';
+                document.getElementById('resultContent').style.display = 'block';
+                
+                document.getElementById('badgeDistance').textContent = 
+                    `Distance: ${result.distance_km.toFixed(1)} km`;
+                document.getElementById('badgeTime').textContent = 
+                    `Time: ${result.time_minutes.toFixed(0)} min`;
+                document.getElementById('badgeEmissions').textContent = 
+                    `CO₂: ${result.co2_kg.toFixed(1)} kg`;
+                
+                // Display route
+                const routeHtml = `
+                    <div class="route-item active">
+                        <div class="route-title">Optimized Collection Route</div>
+                        <div class="route-detail"><strong>Stops:</strong> ${result.bin_count}</div>
+                        <div class="route-detail"><strong>Distance:</strong> ${result.distance_km.toFixed(1)} km</div>
+                        <div class="route-detail"><strong>Estimated Time:</strong> ${result.time_minutes.toFixed(0)} minutes</div>
+                        <div class="route-detail"><strong>CO₂ Emissions:</strong> ${result.co2_kg.toFixed(1)} kg</div>
+                        <div class="route-detail"><strong>Fitness Score:</strong> ${result.fitness_score.toFixed(4)}</div>
+                    </div>
+                `;
+                document.getElementById('routeList').innerHTML = routeHtml;
+                
+                // Draw route on map combining OSMnx data
+                drawRoute(result.route, result.path_geometry);
+                
+            } catch(e) {
+                document.getElementById('loadingArea').style.display = 'none';
+                const errorHtml = `<div class="error"><i class="fas fa-exclamation-circle"></i> ${e.message}</div>`;
+                document.getElementById('errorArea').innerHTML = errorHtml;
+                document.getElementById('errorArea').style.display = 'block';
+            } finally {
+                document.getElementById('btnOptimize').disabled = false;
+            }
+        }
+
+        // Event listeners
+        document.getElementById('threshold').addEventListener('input', (e) => {
+            document.getElementById('thresholdVal').textContent = e.target.value;
+            loadBinStats();
+        });
+        
+        document.getElementById('btnOptimize').addEventListener('click', optimizeRoute);
+        
+        // Export CSV Function
+        function exportRoute() {
+            if (!currentRoute || !currentRoute.route) return;
+            
+            let csvContent = "data:text/csv;charset=utf-8,StopNumber,BinID\n";
+            csvContent += "0,DEPOT\n";
+            currentRoute.route.forEach(function(row, index) {
+                csvContent += (index + 1) + "," + row + "\n";
+            });
+            csvContent += (currentRoute.route.length + 1) + ",DEPOT\n";
+            
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "optimized_route.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+        
+        // Upload CSV
+        async function uploadCsv() {
+            const fileInput = document.getElementById('csvUpload');
+            if (fileInput.files.length === 0) {
+                alert("Please select a CSV file first.");
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+            
+            try {
+                const response = await fetch('/api/bins_upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                if (response.ok) {
+                    alert(result.message);
+                    loadBinStats(); // Reload bins
+                } else {
+                    alert("Upload failed: " + result.error);
+                }
+            } catch (err) {
+                alert("Error: " + err.message);
+            }
+        }
+
+        // Initialize
+        window.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            loadBinStats();
+        });
+    </script>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Navbar Active Link Script -->
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const currentPath = window.location.pathname;
+    const navLinks = document.querySelectorAll('.navbar-nav .nav-link');
+    navLinks.forEach(link => {
+      const href = link.getAttribute('href');
+      if (href === currentPath || (href === '/' && currentPath === '/')) {
+        link.classList.add('active');
+      } else {
+        link.classList.remove('active');
+      }
+    });
+  });
+</script>
+
+<!-- Navbar Styling -->
+<style>
+  .navbar-nav .nav-link {
+    color: #fff !important;
+    transition: 0.3s;
+  }
+  
+  .navbar-nav .nav-link:hover {
+    color: #90EE90 !important;
+    border-bottom: 2px solid #90EE90;
+  }
+  
+  .navbar-nav .nav-link.active {
+    color: #90EE90 !important;
+    border-bottom: 3px solid #90EE90;
+  }
+  
+  @media (max-width: 768px) {
+    .navbar-nav .nav-link {
+      padding: 0.5rem 0 !important;
+      margin: 0.5rem 0;
+    }
+  }
+</style>
+</body>
+</html>

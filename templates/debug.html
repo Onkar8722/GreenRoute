@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>GreenRoute Debug Dashboard</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            background: #0f1419; 
+            color: #e0e0e0; 
+            padding: 20px;
+        }
+        h1 { color: #1db954; }
+        .section { background: #1a1f2e; padding: 15px; margin: 10px 0; border-radius: 6px; }
+        .status { font-size: 14px; margin: 5px 0; }
+        .error { color: #ff4444; }
+        .success { color: #1db954; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #2a3f5f; }
+        th { background: #1db954; color: white; }
+        .container { max-width: 1200px; margin: 0 auto; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 GreenRoute Debug Dashboard</h1>
+        
+        <div class="section">
+            <h2>API Status Check</h2>
+            <div id="apiStatus"></div>
+        </div>
+
+        <div class="section">
+            <h2>Bins Data (400 Total)</h2>
+            <div id="binsData"></div>
+        </div>
+
+        <div class="section">
+            <h2>Stats Summary</h2>
+            <div id="statsData"></div>
+        </div>
+
+        <div class="section">
+            <h2>Forecast Sample</h2>
+            <div id="forecastData"></div>
+        </div>
+
+        <div class="section">
+            <h2>System Health</h2>
+            <div id="healthData"></div>
+        </div>
+    </div>
+
+    <script>
+        async function testAPI(name, url) {
+            const statusDiv = document.getElementById('apiStatus');
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                const p = document.createElement('p');
+                p.className = 'status success';
+                p.innerHTML = `✅ ${name}: OK (${response.status})`;
+                statusDiv.appendChild(p);
+                return { ok: true, data };
+            } catch (e) {
+                const p = document.createElement('p');
+                p.className = 'status error';
+                p.innerHTML = `❌ ${name}: ${e.message}`;
+                statusDiv.appendChild(p);
+                return { ok: false };
+            }
+        }
+
+        async function loadData() {
+            // Test health
+            await testAPI('Health Check', '/api/health');
+
+            // Load bins
+            const binsResult = await testAPI('Get Bins', '/api/bins');
+            if (binsResult.ok) {
+                const data = binsResult.data;
+                const div = document.getElementById('binsData');
+                
+                const html = `
+                    <p class="status success">Total bins: ${data.count}</p>
+                    <table>
+                        <tr><th>ID</th><th>Fill %</th><th>Lat</th><th>Lng</th><th>Battery</th></tr>
+                        ${data.bins.slice(0, 5).map(b => `
+                            <tr>
+                                <td>${b.id}</td>
+                                <td>${b.fill}</td>
+                                <td>${b.lat.toFixed(4)}</td>
+                                <td>${b.lng.toFixed(4)}</td>
+                                <td>${b.battery_level}%</td>
+                            </tr>
+                        `).join('')}
+                    </table>
+                    <p style="margin-top: 10px; font-size: 12px;">Showing first 5 of ${data.count} bins</p>
+                `;
+                div.innerHTML = html;
+            }
+
+            // Load stats
+            const statsResult = await testAPI('Get Stats', '/api/stats');
+            if (statsResult.ok) {
+                const data = statsResult.data;
+                const div = document.getElementById('statsData');
+                const html = `
+                    <p class="status success">✓ Stats loaded</p>
+                    <p>Total Bins: <strong>${data.total_bins}</strong></p>
+                    <p>Average Fill: <strong>${data.avg_fill}%</strong></p>
+                    <p>Critical (>70%): <strong>${data.critical}</strong></p>
+                    <p>High (50-70%): <strong>${data.high}</strong></p>
+                    <p>Medium (30-50%): <strong>${data.medium}</strong></p>
+                    <p>Low (<30%): <strong>${data.low}</strong></p>
+                `;
+                div.innerHTML = html;
+            }
+
+            // Load forecast
+            const forecastResult = await testAPI('Get Forecast', '/api/forecast?hours=24');
+            if (forecastResult.ok) {
+                const data = forecastResult.data;
+                const div = document.getElementById('forecastData');
+                const sample = data.forecasts[0];
+                const html = `
+                    <p class="status success">✓ Forecasts: ${data.forecasts.length} bins</p>
+                    <p>Predicted Critical: <strong>${data.predicted_critical_bins}</strong></p>
+                    <p>Sample Bin: <strong>${sample.id}</strong></p>
+                    <p>Current Fill: <strong>${sample.fill}%</strong></p>
+                    <p>Predicted Fill (24h): <strong>${sample.predicted_fill}%</strong></p>
+                    <p>Hourly Data Points: <strong>${sample.data.length}</strong></p>
+                    ${sample.data.length > 0 ? `<p>Sample: ${sample.data[0].hour_ahead}h → ${sample.data[0].predicted_fill}%</p>` : ''}
+                `;
+                div.innerHTML = html;
+            }
+
+            // Load health
+            const healthResult = await testAPI('Health Details', '/api/health');
+            if (healthResult.ok) {
+                const data = healthResult.data;
+                const div = document.getElementById('healthData');
+                const html = `
+                    <p class="status ${data.status === 'healthy' ? 'success' : 'error'}">
+                        System: <strong>${data.status.toUpperCase()}</strong>
+                    </p>
+                    <p class="status ${data.database === 'healthy' ? 'success' : 'error'}">
+                        Database: <strong>${data.database}</strong>
+                    </p>
+                    <p class="status ${data.cache === 'healthy' ? 'success' : 'error'}">
+                        Cache: <strong>${data.cache}</strong>
+                    </p>
+                    <p class="status">MQTT: <strong>${data.mqtt}</strong></p>
+                    <p style="font-size: 12px; color: #a0a0a0;">Last Update: ${new Date(data.timestamp).toLocaleString()}</p>
+                `;
+                div.innerHTML = html;
+            }
+
+            // Show next steps
+            const div = document.createElement('div');
+            div.className = 'section';
+            div.innerHTML = `
+                <h2>✅ All Data Loading Works!</h2>
+                <p>If you see the data above, your APIs are working correctly.</p>
+                <p><strong>Next step:</strong> <a href="/dashboard" style="color: #1db954; text-decoration: underline;">Open Full Dashboard</a></p>
+                <p style="margin-top: 20px; font-size: 12px; color: #a0a0a0;">
+                    If data is missing, check browser console (F12) for errors.
+                </p>
+            `;
+            document.body.appendChild(div);
+        }
+
+        // Run tests on page load
+        window.addEventListener('load', loadData);
+    </script>
+</body>
+</html>

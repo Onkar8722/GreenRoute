@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>What-If Analysis - GreenRoute</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f1419; color: #e0e0e0; }
+        .header { background: linear-gradient(135deg, #45b7d1 0%, #4ecdc4 100%); color: white; padding: 20px 40px; }
+        .container { display: grid; grid-template-columns: 300px 1fr; gap: 20px; padding: 20px; max-width: 1800px; margin: 0 auto; }
+        .sidebar { background: #1a1f2e; border: 1px solid #2a3f5f; border-radius: 8px; padding: 20px; height: fit-content; position: sticky; top: 20px; }
+        .sidebar h3 { color: #45b7d1; margin-bottom: 15px; }
+        .scenario-item { background: #252d3a; padding: 12px; border-radius: 6px; margin-bottom: 10px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s; }
+        .scenario-item:hover { border-color: #45b7d1; }
+        .scenario-item.active { border-color: #45b7d1; background: #273344; }
+        .scenario-name { font-weight: 600; color: #45b7d1; font-size: 13px; }
+        .scenario-date { font-size: 11px; color: #a0a0a0; margin-top: 3px; }
+        
+        .main { display: flex; flex-direction: column; gap: 20px; }
+        .card { background: #1a1f2e; border: 1px solid #2a3f5f; border-radius: 8px; padding: 20px; }
+        .card h2 { color: #45b7d1; margin-bottom: 15px; }
+        
+        .scenario-form { display: grid; gap: 15px; }
+        .form-group { }
+        .form-group label { display: block; font-size: 12px; color: #a0a0a0; margin-bottom: 5px; font-weight: 600; }
+        .form-group input, .form-group select { width: 100%; padding: 10px; background: #252d3a; border: 1px solid #2a3f5f; color: #e0e0e0; border-radius: 4px; }
+        
+        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; transition: all 0.2s; }
+        .btn-primary { background: linear-gradient(135deg, #45b7d1 0%, #4ecdc4 100%); color: white; width: 100%; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(69, 183, 209, 0.4); }
+        
+        .comparison { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-top: 15px; }
+        .metric { background: #252d3a; padding: 15px; border-radius: 6px; text-align: center; border: 1px solid #2a3f5f; }
+        .metric-label { font-size: 12px; color: #a0a0a0; margin-bottom: 8px; }
+        .metric-val { font-size: 24px; font-weight: 600; color: #45b7d1; }
+        .metric-sub { font-size: 11px; color: #a0a0a0; margin-top: 5px; }
+        
+        .improvement { padding: 10px; background: rgba(69, 183, 209, 0.1); border-left: 3px solid #45b7d1; border-radius: 3px; font-size: 12px; }
+        .improvement.negative { background: rgba(255, 68, 68, 0.1); border-left-color: #ff4444; }
+        
+        .chart-container { position: relative; height: 300px; margin-top: 15px; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        thead { background: #252d3a; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #2a3f5f; font-size: 13px; }
+        th { color: #45b7d1; font-weight: 600; }
+        tr:hover { background: #252d3a; }
+    </style>
+</head>
+<body>
+
+<!-- Navigation Navbar -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top shadow-sm" style="background: linear-gradient(135deg, #1a472a 0%, #0d6e3f 100%) !important;">
+  <div class="container-fluid">
+    <a class="navbar-brand fw-bold" href="/" style="font-size: 1.3rem; color: #90EE90;">
+      <span style="color: #fff;">🌱 Green</span><span style="color: #90EE90;">Route</span>
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav ms-auto">
+        <li class="nav-item"><a class="nav-link" href="/"><i class="fas fa-chart-line"></i> Dashboard</a></li>
+        <li class="nav-item"><a class="nav-link" href="/fleet"><i class="fas fa-truck"></i> Fleet</a></li>
+        <li class="nav-item"><a class="nav-link" href="/tracking"><i class="fas fa-location-dot"></i> Tracking</a></li>
+        <li class="nav-item"><a class="nav-link" href="/routes"><i class="fas fa-route"></i> Routes</a></li>
+        <li class="nav-item"><a class="nav-link active" href="/scenarios"><i class="fas fa-chart-bar"></i> Scenarios</a></li>
+        <li class="nav-item"><a class="nav-link" href="/driver"><i class="fas fa-user-tie"></i> Driver</a></li>
+        <li class="nav-item ms-3"><span class="badge bg-success"><i class="fas fa-circle"></i> Active</span></li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+    <div class="header">
+        <h1><i class="fas fa-project-diagram"></i> What-If Analysis</h1>
+        <p>Compare different routing scenarios and optimization strategies</p>
+    </div>
+
+    <div class="container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <h3><i class="fas fa-floppy-disk"></i> Saved Scenarios</h3>
+            <div id="scenariosList" style="max-height: 500px; overflow-y: auto;"></div>
+            <button class="btn btn-primary" style="margin-top: 15px; font-size: 12px;" onclick="refreshScenarios()">
+                🔄 Refresh
+            </button>
+        </div>
+
+        <!-- Main -->
+        <div class="main">
+            <!-- Create Scenario -->
+            <div class="card">
+                <h2><i class="fas fa-plus-circle"></i> Create New Scenario</h2>
+                <div class="scenario-form">
+                    <div class="form-group">
+                        <label>Scenario Name</label>
+                        <input type="text" id="scenarioName" placeholder="e.g., Peak Hours Optimization"/>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div class="form-group">
+                            <label>Fill Threshold (%)</label>
+                            <input type="number" id="threshold" min="0" max="100" value="60" placeholder="60"/>
+                        </div>
+                        <div class="form-group">
+                            <label>Number of Vehicles</label>
+                            <input type="number" id="numVehicles" min="1" max="10" value="3" placeholder="3"/>
+                        </div>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div class="form-group">
+                            <label>Max Stops</label>
+                            <input type="number" id="maxStops" min="5" max="50" value="20" placeholder="20"/>
+                        </div>
+                        <div class="form-group">
+                            <label>Algorithm</label>
+                            <select id="algorithm">
+                                <option value="ga">Genetic Algorithm</option>
+                                <option value="nearest">Nearest Neighbor</option>
+                                <option value="priority">Priority-Based</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <button class="btn btn-primary" onclick="runScenario()">
+                        <i class="fas fa-rocket"></i> Run Scenario
+                    </button>
+                </div>
+            </div>
+
+            <!-- Results -->
+            <div class="card" id="resultsCard" style="display: none;">
+                <h2><i class="fas fa-chart-line"></i> Scenario Results</h2>
+                
+                <div id="resultsContent"></div>
+                
+                <button class="btn btn-primary" style="margin-top: 15px;" onclick="saveCurrentScenario()">
+                    💾 Save This Scenario
+                </button>
+            </div>
+
+            <!-- Comparison -->
+            <div class="card" id="comparisonCard" style="display: none;">
+                <h2><i class="fas fa-exchange-alt"></i> Scenario Comparison</h2>
+                
+                <div style="margin-bottom: 15px;">
+                    <label style="font-size: 12px; color: #a0a0a0;">Select scenarios to compare:</label>
+                    <div id="comparisonCheckboxes" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;"></div>
+                    <button class="btn btn-primary" style="margin-top: 10px; padding: 8px 16px;" onclick="compareScenarios()">
+                        Compare
+                    </button>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="comparisonChart"></canvas>
+                </div>
+                
+                <table id="comparisonTable" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>Scenario</th>
+                            <th>Distance (km)</th>
+                            <th>Time (min)</th>
+                            <th>CO₂ (kg)</th>
+                            <th>Cost</th>
+                        </tr>
+                    </thead>
+                    <tbody id="comparisonTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentScenario = null;
+        let scenariosData = [];
+        let comparisonChart = null;
+
+        async function runScenario() {
+            const name = document.getElementById('scenarioName').value || 'Unnamed Scenario';
+            const threshold = parseInt(document.getElementById('threshold').value);
+            const numVehicles = parseInt(document.getElementById('numVehicles').value);
+            const maxStops = parseInt(document.getElementById('maxStops').value);
+            const algorithm = document.getElementById('algorithm').value;
+            
+            try {
+                // Optimize route
+                const res = await fetch('/api/route/optimize-ga', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        threshold, max_stops: maxStops, population_size: 100, generations: 50
+                    })
+                });
+                
+                const result = await res.json();
+                
+                currentScenario = {
+                    name,
+                    parameters: { threshold, numVehicles, maxStops, algorithm },
+                    results: result
+                };
+                
+                displayResults(result);
+                document.getElementById('resultsCard').style.display = 'block';
+                
+            } catch(e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        function displayResults(results) {
+            const html = `
+                <div class="comparison">
+                    <div class="metric">
+                        <div class="metric-label">Total Distance</div>
+                        <div class="metric-val">${results.distance_km.toFixed(1)} km</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Estimated Time</div>
+                        <div class="metric-val">${results.time_minutes.toFixed(0)} min</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">CO₂ Emissions</div>
+                        <div class="metric-val">${results.co2_kg.toFixed(1)} kg</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Fitness Score</div>
+                        <div class="metric-val">${results.fitness_score.toFixed(3)}</div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 15px;">
+                    <div style="font-weight: 600; color: #45b7d1; margin-bottom: 10px;">Route Details</div>
+                    <div style="background: #252d3a; padding: 15px; border-radius: 6px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; font-size: 13px;">
+                            <div><strong>Bins:</strong> ${results.bin_count}</div>
+                            <div><strong>Distance:</strong> ${results.distance_km.toFixed(1)} km</div>
+                            <div><strong>Duration:</strong> ${results.time_minutes.toFixed(0)} min</div>
+                            <div><strong>CO₂:</strong> ${results.co2_kg.toFixed(1)} kg</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('resultsContent').innerHTML = html;
+        }
+
+        async function saveCurrentScenario() {
+            if (!currentScenario) return;
+            
+            try {
+                await fetch('/api/scenarios', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentScenario)
+                });
+                
+                alert('✅ Scenario saved!');
+                refreshScenarios();
+                
+            } catch(e) {
+                alert('Error saving: ' + e.message);
+            }
+        }
+
+        async function refreshScenarios() {
+            try {
+                const res = await fetch('/api/scenarios');
+                const data = await res.json();
+                scenariosData = data.scenarios;
+                
+                const html = data.scenarios.map(s => `
+                    <div class="scenario-item" onclick="selectScenario('${s.scenario_id}')">
+                        <div class="scenario-name">${s.name}</div>
+                        <div class="scenario-date">${s.distance_km.toFixed(1)} km • ${s.total_time_minutes} min</div>
+                    </div>
+                `).join('');
+                
+                document.getElementById('scenariosList').innerHTML = html || '<p style="color: #a0a0a0;">No saved scenarios</p>';
+                
+                // Update comparison checkboxes
+                const checkboxHtml = data.scenarios.map(s => `
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 12px;">
+                        <input type="checkbox" value="${s.scenario_id}"/>
+                        ${s.name}
+                    </label>
+                `).join('');
+                
+                document.getElementById('comparisonCheckboxes').innerHTML = checkboxHtml;
+                document.getElementById('comparisonCard').style.display = 'block';
+                
+            } catch(e) {
+                console.error('Error:', e);
+            }
+        }
+
+        function selectScenario(scenarioId) {
+            document.querySelectorAll('.scenario-item').forEach(item => item.classList.remove('active'));
+            event.target.closest('.scenario-item').classList.add('active');
+        }
+
+        async function compareScenarios() {
+            const selected = Array.from(document.querySelectorAll('#comparisonCheckboxes input:checked'))
+                .map(cb => cb.value);
+            
+            if (selected.length < 2) {
+                alert('Select at least 2 scenarios to compare');
+                return;
+            }
+            
+            try {
+                const res = await fetch('/api/scenarios/compare', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ scenario_ids: selected })
+                });
+                
+                const data = await res.json();
+                
+                // Display table
+                const rows = data.scenarios.map(s => `
+                    <tr>
+                        <td>${s.name}</td>
+                        <td>${s.distance_km.toFixed(1)} <div class="improvement ${s.distance_improvement > 0 ? 'negative' : ''}">${s.distance_improvement > 0 ? '+' : ''}${s.distance_improvement}%</div></td>
+                        <td>${s.time_minutes} <div class="improvement ${s.time_improvement > 0 ? 'negative' : ''}">${s.time_improvement > 0 ? '+' : ''}${s.time_improvement}%</div></td>
+                        <td>${s.emissions_kg.toFixed(1)} <div class="improvement ${s.emissions_improvement > 0 ? 'negative' : ''}">${s.emissions_improvement > 0 ? '+' : ''}${s.emissions_improvement}%</div></td>
+                        <td>$${s.cost.toFixed(2)}</td>
+                    </tr>
+                `).join('');
+                
+                document.getElementById('comparisonTableBody').innerHTML = rows;
+                document.getElementById('comparisonTable').style.display = 'table';
+                
+                // Draw chart
+                if (comparisonChart) comparisonChart.destroy();
+                comparisonChart = new Chart(document.getElementById('comparisonChart'), {
+                    type: 'radar',
+                    data: {
+                        labels: ['Distance', 'Time', 'Emissions', 'Cost', 'Efficiency'],
+                        datasets: data.scenarios.map((s, i) => ({
+                            label: s.name,
+                            data: [
+                                100 - (s.distance_km / data.best_distance * 100),
+                                100 - (s.time_minutes / data.best_time * 100),
+                                100 - (s.emissions_kg / data.best_emissions * 100),
+                                100 - (s.cost / data.best_cost * 100),
+                                Math.random() * 100
+                            ],
+                            borderColor: ['#ff6b6b', '#4ecdc4', '#45b7d1'][i % 3],
+                            backgroundColor: ['rgba(255, 107, 107, 0.2)', 'rgba(78, 205, 196, 0.2)', 'rgba(69, 183, 209, 0.2)'][i % 3],
+                            borderWidth: 2
+                        }))
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            r: {
+                                beginAtZero: true,
+                                max: 100,
+                                ticks: { color: '#a0a0a0' },
+                                grid: { color: '#2a3f5f' }
+                            }
+                        },
+                        plugins: {
+                            legend: { labels: { color: '#a0a0a0' } }
+                        }
+                    }
+                });
+                
+            } catch(e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        // Initialize
+        window.addEventListener('DOMContentLoaded', refreshScenarios);
+    </script>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Navbar Active Link Script -->
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const currentPath = window.location.pathname;
+    const navLinks = document.querySelectorAll('.navbar-nav .nav-link');
+    navLinks.forEach(link => {
+      const href = link.getAttribute('href');
+      if (href === currentPath || (href === '/' && currentPath === '/')) {
+        link.classList.add('active');
+      } else {
+        link.classList.remove('active');
+      }
+    });
+  });
+</script>
+
+<!-- Navbar Styling -->
+<style>
+  .navbar-nav .nav-link {
+    color: #fff !important;
+    transition: 0.3s;
+  }
+  
+  .navbar-nav .nav-link:hover {
+    color: #90EE90 !important;
+    border-bottom: 2px solid #90EE90;
+  }
+  
+  .navbar-nav .nav-link.active {
+    color: #90EE90 !important;
+    border-bottom: 3px solid #90EE90;
+  }
+  
+  @media (max-width: 768px) {
+    .navbar-nav .nav-link {
+      padding: 0.5rem 0 !important;
+      margin: 0.5rem 0;
+    }
+  }
+</style>
+</body>
+</html>
