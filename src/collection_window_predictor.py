@@ -47,7 +47,7 @@ class CollectionWindowPredictor:
                 SELECT AVG(fill_level) as avg_fill, 
                        (MAX(fill_level) - MIN(fill_level)) / 30 as daily_rate
                 FROM fill_history
-                WHERE bin_id = %s AND timestamp > NOW() - INTERVAL '30 days'
+                WHERE bin_id = %s AND recorded_at > NOW() - INTERVAL '30 days'
             """, (bin_id,))
             
             hist = cursor.fetchone()
@@ -91,17 +91,17 @@ class CollectionWindowPredictor:
             cursor.execute("""
                 SELECT 
                     fh.bin_id,
-                    EXTRACT(HOUR FROM fh.timestamp) as hour_of_day,
-                    EXTRACT(DOW FROM fh.timestamp) as day_of_week,
-                    CASE WHEN EXTRACT(DOW FROM fh.timestamp) >= 5 THEN 1 ELSE 0 END as is_weekend,
+                    EXTRACT(HOUR FROM fh.recorded_at) as hour_of_day,
+                    EXTRACT(DOW FROM fh.recorded_at) as day_of_week,
+                    CASE WHEN EXTRACT(DOW FROM fh.recorded_at) >= 5 THEN 1 ELSE 0 END as is_weekend,
                     fh.fill_level as current_fill,
-                    LAG(fh.fill_level) OVER (PARTITION BY fh.bin_id ORDER BY fh.timestamp) as prev_fill,
-                    EXTRACT(EPOCH FROM (fh.timestamp - LAG(fh.timestamp) OVER (PARTITION BY fh.bin_id ORDER BY fh.timestamp))) / 86400 as days_since_last
+                    LAG(fh.fill_level) OVER (PARTITION BY fh.bin_id ORDER BY fh.recorded_at) as prev_fill,
+                    EXTRACT(EPOCH FROM (fh.recorded_at - LAG(fh.recorded_at) OVER (PARTITION BY fh.bin_id ORDER BY fh.recorded_at))) / 86400 as days_since_last
                 FROM fill_history fh
-                WHERE fh.timestamp > NOW() - INTERVAL '%s days'
-                ORDER BY fh.bin_id, fh.timestamp
+                WHERE fh.recorded_at > NOW() - (%s * INTERVAL '1 day')
+                ORDER BY fh.bin_id, fh.recorded_at
                 LIMIT 50000
-            """ % days_of_history)
+            """, (days_of_history,))
             
             data = cursor.fetchall()
             cursor.close()

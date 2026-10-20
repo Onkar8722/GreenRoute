@@ -78,6 +78,16 @@
     </div>
 
     <script>
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>"']/g, char => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            })[char]);
+        }
+
         let map;
         let vehicleMarkers = {};
         let vehicleLines = {};
@@ -118,9 +128,9 @@
                             opacity: 1,
                             fillOpacity: 0.9
                         }).addTo(map).bindPopup(`
-                            <b>${v.driver}</b><br>
-                            ${v.license_plate}<br>
-                            Status: ${v.status}
+                            <b>${escapeHtml(v.driver)}</b><br>
+                            ${escapeHtml(v.license_plate)}<br>
+                            Status: ${escapeHtml(v.status)}
                         `);
                         
                         marker.on('click', () => selectVehicle(v.assignment_id));
@@ -128,19 +138,19 @@
                     }
                     
                     vehicleHtml += `
-                        <div class="vehicle-card ${isSelected ? 'active' : ''}" onclick="selectVehicle('${v.assignment_id}')">
-                            <div class="vehicle-name" style="color: ${color};">${v.driver}</div>
+                        <div class="vehicle-card ${isSelected ? 'active' : ''}" data-assignment-id="${escapeHtml(v.assignment_id)}">
+                            <div class="vehicle-name" style="color: ${color};">${escapeHtml(v.driver)}</div>
                             <div class="stat-row">
                                 <span>Vehicle:</span>
-                                <strong>${v.license_plate}</strong>
+                                <strong>${escapeHtml(v.license_plate)}</strong>
                             </div>
                             <div class="stat-row">
                                 <span>Type:</span>
-                                <strong>${v.vehicle_type}</strong>
+                                <strong>${escapeHtml(v.vehicle_type)}</strong>
                             </div>
                             <div class="stat-row">
                                 <span>Current Bin:</span>
-                                <strong>${v.current_bin || 'Moving'}</strong>
+                                <strong>${escapeHtml(v.current_bin || 'Moving')}</strong>
                             </div>
                             <div class="stat-row">
                                 <span>Last Update:</span>
@@ -150,7 +160,11 @@
                     `;
                 });
                 
-                document.getElementById('vehiclesList').innerHTML = vehicleHtml || '<p style="color: #a0a0a0;">No active vehicles</p>';
+                const vehiclesList = document.getElementById('vehiclesList');
+                vehiclesList.innerHTML = vehicleHtml || '<p style="color: #a0a0a0;">No active vehicles</p>';
+                vehiclesList.querySelectorAll('[data-assignment-id]').forEach(card => {
+                    card.addEventListener('click', () => selectVehicle(card.dataset.assignmentId));
+                });
                 
             } catch(e) {
                 console.error('Error:', e);

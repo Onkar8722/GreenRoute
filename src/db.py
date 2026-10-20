@@ -5,11 +5,68 @@ Handles schema creation, data loading, and version management.
 
 import logging
 import os
+import csv
+from pathlib import Path
 from datetime import datetime
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+from .bin_upload import parse_bins_csv
+from .db_transaction import transaction
+
 logger = logging.getLogger(__name__)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+CANONICAL_SCHEMA_PATH = PROJECT_ROOT / "docs" / "database_schema.sql"
+SAMPLE_DATA_PATH = PROJECT_ROOT / "data" / "pune_smart_bin_dataset.csv"
+
+REQUIRED_SCHEMA_COLUMNS = {
+    "bins": {"id", "latitude", "longitude", "fill_level", "status", "last_updated"},
+    "fill_history": {"id", "bin_id", "fill_level", "recorded_at"},
+    "routes": {"id", "truck_id", "bin_sequence", "status"},
+    "vehicle_telemetry": {"id", "truck_id", "recorded_at"},
+    "alerts": {"id", "bin_id", "alert_type", "severity", "status", "created_at"},
+    "vehicles": {"id", "vehicle_id", "vehicle_type", "license_plate"},
+    "drivers": {"id", "driver_id", "name", "vehicle_id"},
+    "route_assignments": {
+        "assignment_id", "driver_id", "vehicle_id", "route_data",
+        "total_distance_km", "estimated_duration_minutes", "status", "end_time",
+    },
+    "vehicle_tracking": {
+        "id", "assignment_id", "vehicle_id", "latitude", "longitude",
+        "current_bin_id", "current_stop_number", "timestamp",
+    },
+    "scenarios": {"scenario_id", "name", "parameters", "results", "created_at"},
+    "forecasting_models": {"id", "model_type", "training_date"},
+    "schema_versions": {"version", "applied_at", "description"},
+}
+REQUIRED_FOREIGN_KEYS = {
+    ("fill_history", "bin_id", "bins", "id"),
+    ("alerts", "bin_id", "bins", "id"),
+    ("drivers", "vehicle_id", "vehicles", "id"),
+    ("route_assignments", "driver_id", "drivers", "id"),
+    ("route_assignments", "vehicle_id", "vehicles", "id"),
+    ("vehicle_tracking", "assignment_id", "route_assignments", "assignment_id"),
+    ("vehicle_tracking", "vehicle_id", "vehicles", "id"),
+    ("vehicle_tracking", "current_bin_id", "bins", "id"),
+}
+REQUIRED_UNIQUE_KEYS = {
+    ("bins", "id"),
+    ("fill_history", "id"),
+    ("routes", "id"),
+    ("vehicle_telemetry", "id"),
+    ("alerts", "id"),
+    ("forecasting_models", "id"),
+    ("vehicles", "id"),
+    ("vehicles", "vehicle_id"),
+    ("vehicles", "license_plate"),
+    ("drivers", "id"),
+    ("drivers", "driver_id"),
+    ("route_assignments", "assignment_id"),
+    ("vehicle_tracking", "id"),
+    ("scenarios", "scenario_id"),
+    ("schema_versions", "version"),
+}
 
 
 class DatabaseManager:
@@ -23,6 +80,7 @@ class DatabaseManager:
             db_config: Dictionary with host, port, database, user, password
         """
         self.db_config = db_config
+        self.last_error = None
     
     def create_connection(self):
         """Create database connection."""
@@ -38,7 +96,7 @@ class DatabaseManager:
         """Alias for create_connection (used by FleetManagementAPI)."""
         return self.create_connection()
     
-    def initialize_schema(self, schema_file: str = "database_schema.sql") -> bool:
+    def initialize_schema(self, schema_file: str | os.PathLike | None = None) -> bool:
         """
         Initialize database schema from SQL file.
         
@@ -49,31 +107,105 @@ class DatabaseManager:
             True if successful
         """
         try:
-            if not os.path.exists(schema_file):
-                logger.error(f"Schema file not found: {schema_file}")
-                return False
-            
-            with open(schema_file, 'r') as f:
-                schema_sql = f.read()
-            
-            conn = self.create_connection()
-            cursor = conn.cursor()
-            
-            # Execute schema script
-            cursor.execute(schema_sql)
-            conn.commit()
-            
-            cursor.close()
-            conn.close()
-            
+            schema_path = Path(schema_file) if schema_file else CANONICAL_SCHEMA_PATH
+            if not schema_path.is_absolute():
+                schema_path = PROJECT_ROOT / schema_path
+            if not schema_path.is_file():
+                raise FileNotFoundError(f"Canonical database schema not found: {schema_path}")
+
+            schema_sql = schema_path.read_text(encoding="utf-8")
+            with transaction(self.create_connection()) as cursor:
+                cursor.execute(schema_sql)
+                cursor.execute(
+                    """
+                    SELECT table_name, column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                    """
+                )
+                actual = {}
+                for table_name, column_name in cursor.fetchall():
+                    actual.setdefault(table_name, set()).add(column_name)
+                missing = {
+                    table: sorted(columns - actual.get(table, set()))
+                    for table, columns in REQUIRED_SCHEMA_COLUMNS.items()
+                    if columns - actual.get(table, set())
+                }
+                if missing:
+                    details = "; ".join(
+                        f"{table}: {', '.join(columns)}"
+                        for table, columns in sorted(missing.items())
+                    )
+                    raise RuntimeError(
+                        "Existing database schema is incompatible with the canonical "
+                        f"schema (missing columns: {details}). No automatic data migration was attempted."
+                    )
+                cursor.execute(
+                    """
+                    SELECT tc.table_name, kcu.column_name,
+                           ccu.table_name, ccu.column_name
+                    FROM information_schema.table_constraints AS tc
+                    JOIN information_schema.key_column_usage AS kcu
+                      ON tc.constraint_catalog = kcu.constraint_catalog
+                     AND tc.constraint_schema = kcu.constraint_schema
+                     AND tc.constraint_name = kcu.constraint_name
+                     AND tc.table_name = kcu.table_name
+                    JOIN information_schema.constraint_column_usage AS ccu
+                      ON tc.constraint_catalog = ccu.constraint_catalog
+                     AND tc.constraint_schema = ccu.constraint_schema
+                     AND tc.constraint_name = ccu.constraint_name
+                    WHERE tc.constraint_type = 'FOREIGN KEY'
+                      AND tc.constraint_schema = current_schema()
+                    """
+                )
+                actual_foreign_keys = set(cursor.fetchall())
+                missing_foreign_keys = REQUIRED_FOREIGN_KEYS - actual_foreign_keys
+                if missing_foreign_keys:
+                    details = "; ".join(
+                        f"{table}.{column} -> {referenced_table}.{referenced_column}"
+                        for table, column, referenced_table, referenced_column
+                        in sorted(missing_foreign_keys)
+                    )
+                    raise RuntimeError(
+                        "Existing database schema is incompatible with the canonical "
+                        f"schema (missing foreign keys: {details}). "
+                        "No automatic data migration was attempted."
+                    )
+                cursor.execute(
+                    """
+                    SELECT tc.table_name, kcu.column_name
+                    FROM information_schema.table_constraints AS tc
+                    JOIN information_schema.key_column_usage AS kcu
+                      ON tc.constraint_catalog = kcu.constraint_catalog
+                     AND tc.constraint_schema = kcu.constraint_schema
+                     AND tc.constraint_name = kcu.constraint_name
+                     AND tc.table_name = kcu.table_name
+                    WHERE tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')
+                      AND tc.constraint_schema = current_schema()
+                    """
+                )
+                actual_unique_keys = set(cursor.fetchall())
+                missing_unique_keys = REQUIRED_UNIQUE_KEYS - actual_unique_keys
+                if missing_unique_keys:
+                    details = "; ".join(
+                        f"{table}.{column}"
+                        for table, column in sorted(missing_unique_keys)
+                    )
+                    raise RuntimeError(
+                        "Existing database schema is incompatible with the canonical "
+                        f"schema (missing primary/unique keys: {details}). "
+                        "No automatic data migration was attempted."
+                    )
+
             logger.info("Database schema initialized successfully")
+            self.last_error = None
             return True
-        
         except Exception as e:
-            logger.error(f"Schema initialization error: {e}")
+            self.last_error = str(e)
+            logger.error(f"Schema initialization error: {self.last_error}")
             return False
     
-    def load_sample_data(self, csv_file: str) -> int:
+    def load_sample_data(self, csv_file: str | os.PathLike = SAMPLE_DATA_PATH) -> int:
         """
         Load sample data from CSV file.
         
@@ -81,84 +213,47 @@ class DatabaseManager:
             csv_file: Path to CSV file
             
         Returns:
-            Number of records inserted
+            Number of validated CSV records processed
         """
-        import csv
-        
         try:
-            if not os.path.exists(csv_file):
-                logger.error(f"CSV file not found: {csv_file}")
-                return 0
-            
-            conn = self.create_connection()
-            cursor = conn.cursor()
-            
-            inserted = 0
-            
-            with open(csv_file, 'r') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    try:
-                        cursor.execute("""
-                            INSERT INTO bins 
-                            (id, latitude, longitude, fill_level, status, 
-                             battery_level, signal_strength, bin_type, capacity_liters)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (id) DO UPDATE
-                            SET fill_level = EXCLUDED.fill_level,
-                                battery_level = EXCLUDED.battery_level,
-                                signal_strength = EXCLUDED.signal_strength,
-                                last_updated = NOW()
-                        """, (
-                            row.get('id'),
-                            float(row.get('latitude', 0)),
-                            float(row.get('longitude', 0)),
-                            int(row.get('fill_level', 0)),
-                            int(row.get('status', 0)),
-                            int(row.get('battery_level', 100)),
-                            int(row.get('signal_strength', -50)),
-                            row.get('bin_type', 'residential'),
-                            int(row.get('capacity_liters', 120))
-                        ))
-                        inserted += 1
-                    
-                    except Exception as e:
-                        logger.warning(f"Error inserting row: {e}")
-                        continue
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
-            
-            logger.info(f"Loaded {inserted} sample bin records")
+            csv_path = Path(csv_file)
+            if not csv_path.is_absolute():
+                csv_path = PROJECT_ROOT / csv_path
+            if not csv_path.is_file():
+                raise FileNotFoundError(f"Sample bin CSV not found: {csv_path}")
+
+            content = csv_path.read_bytes()
+            bins = parse_bins_csv(content)
+            with transaction(self.create_connection()) as cursor:
+                for bin_data in bins:
+                    cursor.execute(
+                        """
+                        INSERT INTO bins
+                        (id, latitude, longitude, fill_level, status)
+                        VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (id) DO NOTHING
+                        """,
+                        (
+                            bin_data["id"], bin_data["lat"], bin_data["lng"],
+                            bin_data["fill"], bin_data["status"],
+                        ),
+                    )
+
+            inserted = len(bins)
+            logger.info(f"Processed {inserted} validated sample bin records")
+            self.last_error = None
             return inserted
-        
         except Exception as e:
-            logger.error(f"Data loading error: {e}")
+            self.last_error = str(e)
+            logger.error(f"Data loading error: {self.last_error}")
             return 0
     
     def get_schema_version(self) -> str:
         """Get current database schema version."""
         try:
-            conn = self.create_connection()
-            cursor = conn.cursor()
-            
-            # Create version table if not exists
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS schema_versions (
-                    version VARCHAR(50) PRIMARY KEY,
-                    applied_at TIMESTAMP DEFAULT NOW(),
-                    description TEXT
-                )
-            """)
-            conn.commit()
-            
-            # Get latest version
-            cursor.execute("SELECT version FROM schema_versions ORDER BY applied_at DESC LIMIT 1")
-            result = cursor.fetchone()
-            
-            cursor.close()
-            conn.close()
+            with transaction(self.create_connection()) as cursor:
+                cursor.execute("SELECT version FROM schema_versions ORDER BY applied_at DESC LIMIT 1")
+                result = cursor.fetchone()
             
             return result[0] if result else "0.0.0"
         
@@ -169,17 +264,13 @@ class DatabaseManager:
     def record_migration(self, version: str, description: str = "") -> bool:
         """Record a migration in the database."""
         try:
-            conn = self.create_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute("""
+            with transaction(self.create_connection()) as cursor:
+                cursor.execute("""
                 INSERT INTO schema_versions (version, description)
                 VALUES (%s, %s)
-            """, (version, description))
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
+                ON CONFLICT (version) DO UPDATE
+                SET description = EXCLUDED.description, applied_at = NOW()
+                """, (version, description))
             
             logger.info(f"Recorded migration {version}")
             return True
@@ -287,20 +378,23 @@ def init_database(base_dir: str, db_config: dict) -> bool:
     logger.info("Starting database initialization...")
     
     # Initialize schema
-    schema_file = os.path.join(base_dir, "database_schema.sql")
+    project_root = Path(base_dir).resolve()
+    schema_file = project_root / "docs" / "database_schema.sql"
     if not db_manager.initialize_schema(schema_file):
         logger.error("Failed to initialize schema")
         return False
     
     # Load sample data
-    csv_file = os.path.join(base_dir, "data", "pune_smart_bin_dataset.csv")
-    if os.path.exists(csv_file):
-        db_manager.load_sample_data(csv_file)
-    else:
-        logger.warning(f"Sample data file not found: {csv_file}")
+    csv_file = project_root / "data" / "pune_smart_bin_dataset.csv"
+    loaded_count = db_manager.load_sample_data(csv_file)
+    if loaded_count <= 0:
+        logger.error(f"Sample bin records were not loaded: {db_manager.last_error or 'CSV contained no records'}")
+        return False
     
     # Record version
-    db_manager.record_migration("1.0.0", "Initial schema creation")
+    if not db_manager.record_migration("2.0.0", "Canonical database schema"):
+        logger.error("Failed to record database schema version")
+        return False
     
     # Health check
     health = db_manager.health_check()

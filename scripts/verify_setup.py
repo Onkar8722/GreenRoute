@@ -64,9 +64,10 @@ def check_python_packages():
         'paho.mqtt': 'paho-mqtt (IoT client)',
         'sklearn': 'scikit-learn (ML)',
         'numpy': 'numpy (numerics)',
-        'pandas': 'pandas (data)',
         'dotenv': 'python-dotenv (env support)',
-        'alembic': 'alembic (migrations)',
+        'osmnx': 'OSMnx (road routing)',
+        'networkx': 'NetworkX (road routing)',
+        'requests': 'requests (monitoring and live smoke scripts)',
     }
     
     all_present = True

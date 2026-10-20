@@ -271,7 +271,7 @@ def run_simulation(num_trucks=3):
         # Mark assignments as completed
         for asn_id, _, _ in assignment_ids:
             cursor.execute("""
-                UPDATE route_assignments SET status = 'completed', completed_time = NOW()
+                UPDATE route_assignments SET status = 'completed', end_time = NOW()
                 WHERE assignment_id = %s
             """, (asn_id,))
         conn.commit()

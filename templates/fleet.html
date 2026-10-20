@@ -194,6 +194,16 @@
     </div>
 
     <script>
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>"']/g, char => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            })[char]);
+        }
+
         let map;
         let vehicleMarkers = {};
 
@@ -225,11 +235,11 @@
                     
                     html += `
                         <div class="vehicle-item">
-                            <div class="vehicle-id">${v.driver} (${v.license_plate})</div>
-                            <div class="vehicle-stat"><strong>Type:</strong> ${v.vehicle_type}</div>
-                            <div class="vehicle-stat"><strong>Current Bin:</strong> ${v.current_bin || 'N/A'}</div>
+                            <div class="vehicle-id">${escapeHtml(v.driver)} (${escapeHtml(v.license_plate)})</div>
+                            <div class="vehicle-stat"><strong>Type:</strong> ${escapeHtml(v.vehicle_type)}</div>
+                            <div class="vehicle-stat"><strong>Current Bin:</strong> ${escapeHtml(v.current_bin || 'N/A')}</div>
                             <div class="vehicle-stat"><strong>Last Update:</strong> ${new Date(v.last_update).toLocaleTimeString()}</div>
-                            <span class="status-badge status-active">${v.status}</span>
+                            <span class="status-badge status-active">${escapeHtml(v.status)}</span>
                         </div>
                     `;
                     
@@ -241,7 +251,7 @@
                         weight: 2,
                         opacity: 1,
                         fillOpacity: 0.8
-                    }).addTo(map).bindPopup(`<b>${v.driver}</b><br>${v.license_plate}`);
+                    }).addTo(map).bindPopup(`<b>${escapeHtml(v.driver)}</b><br>${escapeHtml(v.license_plate)}`);
                     
                     vehicleMarkers[v.assignment_id] = marker;
                 });
@@ -273,19 +283,37 @@
                 });
                 
                 const routesData = await routesRes.json();
+                if (!routesRes.ok || !Array.isArray(routesData.routes)) {
+                    throw new Error(routesData.error || 'Route generation failed');
+                }
+                const routesByBinId = routesData.routes.map(route => {
+                    if (!Array.isArray(route)) {
+                        throw new Error('Route response has an invalid route');
+                    }
+                    return route.map(stop => {
+                        const binId = typeof stop === 'string' ? stop : stop && stop.id;
+                        if (typeof binId !== 'string' || !binId.trim()) {
+                            throw new Error('Route response is missing a bin ID');
+                        }
+                        return binId;
+                    });
+                });
                 
                 // Schedule them
                 const result = await fetch('/api/fleet/schedule', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        routes: routesData.routes,
+                        routes: routesByBinId,
                         drivers: [{driver_id: 'D01', name: 'Driver 1'}, {driver_id: 'D02', name: 'Driver 2'}, {driver_id: 'D03', name: 'Driver 3'}],
                         vehicles: [{vehicle_id: 'V01', license_plate: 'MH-01-AB-1234'}, {vehicle_id: 'V02', license_plate: 'MH-01-AB-1235'}, {vehicle_id: 'V03', license_plate: 'MH-01-AB-1236'}]
                     })
                 });
                 
                 const resultData = await result.json();
+                if (!result.ok || !resultData.success) {
+                    throw new Error(resultData.error || 'Route scheduling failed');
+                }
                 
                 const resultHtml = `
                     <div style="background: #2a3a2a; border: 1px solid #44ff44; color: #99ff99; padding: 15px; border-radius: 4px;">
@@ -302,7 +330,7 @@
                 
             } catch(e) {
                 console.error('Error:', e);
-                document.getElementById('scheduleResult').innerHTML = `<div style="background: #3a2a2a; border: 1px solid #ff4444; color: #ff9999; padding: 15px; border-radius: 4px;">Error: ${e.message}</div>`;
+                document.getElementById('scheduleResult').innerHTML = `<div style="background: #3a2a2a; border: 1px solid #ff4444; color: #ff9999; padding: 15px; border-radius: 4px;">Error: ${escapeHtml(e.message)}</div>`;
                 document.getElementById('scheduleResult').style.display = 'block';
             }
         }

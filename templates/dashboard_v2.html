@@ -125,6 +125,16 @@
     <script>
         let map, distChart, forecastChart;
 
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>"']/g, char => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            })[char]);
+        }
+
         // Initialize map
         function initMap() {
             map = L.map('map').setView([18.5204, 73.8567], 12);
@@ -192,14 +202,14 @@
                     weight: 1,
                     opacity: 1,
                     fillOpacity: 0.8
-                }).addTo(map).bindPopup(`<b>Bin ${bin.id}</b><br>Fill: ${bin.fill.toFixed(1)}%`);
+                }).addTo(map).bindPopup(`<b>Bin ${escapeHtml(bin.id)}</b><br>Fill: ${bin.fill.toFixed(1)}%`);
             });
             
             // Top bins list
             const top = bins.sort((a,b) => b.fill - a.fill).slice(0,6);
             document.getElementById('topBins').innerHTML = top.map(b => `
                 <div class="bin">
-                    <div class="bin-id">Bin ${b.id}</div>
+                    <div class="bin-id">Bin ${escapeHtml(b.id)}</div>
                     <div class="bin-fill">
                         <div class="progress"><div class="progress-bar" style="width: ${b.fill}%"></div></div>
                         <div class="bin-pct">${b.fill.toFixed(1)}%</div>
@@ -291,7 +301,7 @@
             }
             document.getElementById('alertsList').innerHTML = data.alerts.slice(0, 5).map(a => `
                 <div class="alert">
-                    <strong>Bin ${a.bin_id}:</strong> ${a.message}
+                    <strong>Bin ${escapeHtml(a.bin_id)}:</strong> ${escapeHtml(a.message)}
                 </div>
             `).join('');
         }

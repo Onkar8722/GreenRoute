@@ -10,7 +10,60 @@ from typing import List, Dict, Optional
 import logging
 from flask import request, jsonify
 
+from .db_transaction import transaction
+
 logger = logging.getLogger(__name__)
+
+
+def validate_schedule_payload(routes_data, drivers_data, vehicles_data):
+    """Return a validation error, or None when the scheduling payload is usable."""
+    if not isinstance(routes_data, list) or not routes_data:
+        return "routes must be a non-empty list of bin-ID lists"
+    if not isinstance(drivers_data, list) or not drivers_data:
+        return "drivers must be a non-empty list"
+    if not isinstance(vehicles_data, list) or not vehicles_data:
+        return "vehicles must be a non-empty list"
+
+    seen_bin_ids = set()
+    total_bin_ids = 0
+    has_stops = False
+    for route in routes_data:
+        if not isinstance(route, list):
+            return "each route must be a list of bin ID strings"
+        if route:
+            has_stops = True
+        for bin_id in route:
+            if not isinstance(bin_id, str) or not bin_id.strip():
+                return "route entries must be non-empty bin ID strings"
+            if bin_id != bin_id.strip():
+                return "route bin IDs must not contain surrounding whitespace"
+            if bin_id in seen_bin_ids:
+                return f"bin ID {bin_id!r} appears more than once in routes"
+            seen_bin_ids.add(bin_id)
+            total_bin_ids += 1
+    if not has_stops:
+        return "routes must contain at least one bin ID"
+    if total_bin_ids > 200:
+        return "routes may contain at most 200 bin IDs"
+
+    for name, records, required in (
+        ("driver", drivers_data, ("driver_id", "name")),
+        ("vehicle", vehicles_data, ("vehicle_id", "license_plate")),
+    ):
+        seen_ids = set()
+        for record in records:
+            if not isinstance(record, dict):
+                return f"each {name} must be an object"
+            for field in required:
+                value = record.get(field)
+                if not isinstance(value, str) or not value.strip():
+                    return f"each {name} must include a non-empty {field}"
+            record_id = record[required[0]].strip()
+            if record_id in seen_ids:
+                return f"{name} IDs must be unique"
+            seen_ids.add(record_id)
+    return None
+
 
 class FleetManagementAPI:
     """API handlers for fleet management features."""
@@ -41,61 +94,72 @@ class FleetManagementAPI:
             }
         """
         try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-            
+            validation_error = validate_schedule_payload(
+                routes_data, drivers_data, vehicles_data
+            )
+            if validation_error:
+                return {"success": False, "error": validation_error}
+
             assignments = []
             total_distance = 0
             total_duration = 0
-            
-            # Assign routes to drivers/vehicles in round-robin
-            for idx, route in enumerate(routes_data):
-                driver_idx = idx % len(drivers_data)
-                vehicle_idx = idx % len(vehicles_data)
-                
-                driver = drivers_data[driver_idx]
-                vehicle = vehicles_data[vehicle_idx]
-                
-                # Calculate route distance (simplified - use route_distance_km)
+
+            with transaction(self.db.get_connection()) as cursor:
+                # Assign routes to drivers/vehicles in round-robin.
+                routes_with_stops = [route for route in routes_data if route]
                 from app import route_distance_km, get_bins_data
-                
+
                 bins = get_bins_data()
-                bin_map = {b['id']: b for b in bins}
-                route_bins = [bin_map[bid] for bid in route if bid in bin_map]
-                
-                distance = route_distance_km(route_bins) if route_bins else 0
-                duration = int((distance / 30) * 60 + len(route) * 2)  # 30 km/h + 2min per stop
-                
-                assignment_id = f"ASN_{uuid.uuid4().hex[:8]}"
-                
-                # Store in database
-                cursor.execute("""
-                    INSERT INTO route_assignments 
-                    (assignment_id, driver_id, vehicle_id, route_data, 
-                     total_distance_km, estimated_duration_minutes, status, scheduled_time)
-                    SELECT %s, d.id, v.id, %s, %s, %s, 'assigned', NOW() + INTERVAL '1 hour'
-                    FROM drivers d
-                    JOIN vehicles v ON d.vehicle_id = v.id
-                    WHERE d.driver_id = %s AND v.vehicle_id = %s
-                """, (assignment_id, json.dumps(route), distance, duration, 
-                      driver['driver_id'], vehicle['vehicle_id']))
-                
-                assignments.append({
-                    'assignment_id': assignment_id,
-                    'driver': driver['name'],
-                    'vehicle': vehicle['license_plate'],
-                    'bins': route,
-                    'distance_km': round(distance, 2),
-                    'duration_minutes': duration,
-                    'status': 'assigned'
-                })
-                
-                total_distance += distance
-                total_duration += duration
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
+                bin_map = {str(bin_data["id"]): bin_data for bin_data in bins}
+                requested_bin_ids = {bin_id for route in routes_with_stops for bin_id in route}
+                missing_bin_ids = requested_bin_ids - bin_map.keys()
+                if missing_bin_ids:
+                    raise ValueError(
+                        "Routes contain unknown bin IDs: "
+                        + ", ".join(sorted(missing_bin_ids))
+                    )
+
+                for idx, route in enumerate(routes_with_stops):
+                    driver_idx = idx % len(drivers_data)
+                    vehicle_idx = idx % len(vehicles_data)
+
+                    driver = drivers_data[driver_idx]
+                    vehicle = vehicles_data[vehicle_idx]
+
+                    route_bins = [bin_map[bin_id] for bin_id in route]
+
+                    distance = route_distance_km(route_bins) if route_bins else 0
+                    duration = int((distance / 30) * 60 + len(route) * 2)
+                    assignment_id = f"ASN_{uuid.uuid4().hex[:8]}"
+
+                    cursor.execute("""
+                        INSERT INTO route_assignments
+                        (assignment_id, driver_id, vehicle_id, route_data,
+                         total_distance_km, estimated_duration_minutes, status, scheduled_time)
+                        SELECT %s, d.id, v.id, %s, %s, %s, 'assigned', NOW() + INTERVAL '1 hour'
+                        FROM drivers d
+                        JOIN vehicles v ON d.vehicle_id = v.id
+                        WHERE d.driver_id = %s AND v.vehicle_id = %s
+                    """, (assignment_id, json.dumps(route), distance, duration,
+                          driver['driver_id'], vehicle['vehicle_id']))
+                    if cursor.rowcount == 0:
+                        raise ValueError(
+                            f"No database driver/vehicle assignment matches "
+                            f"{driver['driver_id']!r} and {vehicle['vehicle_id']!r}"
+                        )
+
+                    assignments.append({
+                        'assignment_id': assignment_id,
+                        'driver': driver['name'],
+                        'vehicle': vehicle['license_plate'],
+                        'bins': route,
+                        'distance_km': round(distance, 2),
+                        'duration_minutes': duration,
+                        'status': 'assigned'
+                    })
+
+                    total_distance += distance
+                    total_duration += duration
             
             # Cost estimation: $50 per truck + $3 per km + $10 per hour
             total_cost = len(assignments) * 50 + total_distance * 3 + (total_duration / 60) * 10
@@ -119,21 +183,15 @@ class FleetManagementAPI:
                                current_stop: Optional[int] = None) -> Dict:
         """Update vehicle location during route."""
         try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                INSERT INTO vehicle_tracking 
-                (assignment_id, vehicle_id, latitude, longitude, current_bin_id, current_stop_number)
-                SELECT %s, v.id, %s, %s, %s, %s
-                FROM route_assignments ra
-                JOIN vehicles v ON ra.vehicle_id = v.id
-                WHERE ra.assignment_id = %s
-            """, (assignment_id, latitude, longitude, current_bin, current_stop, assignment_id))
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
+            with transaction(self.db.get_connection()) as cursor:
+                cursor.execute("""
+                    INSERT INTO vehicle_tracking
+                    (assignment_id, vehicle_id, latitude, longitude, current_bin_id, current_stop_number)
+                    SELECT %s, v.id, %s, %s, %s, %s
+                    FROM route_assignments ra
+                    JOIN vehicles v ON ra.vehicle_id = v.id
+                    WHERE ra.assignment_id = %s
+                """, (assignment_id, latitude, longitude, current_bin, current_stop, assignment_id))
             
             return {'success': True, 'message': 'Location updated'}
         
@@ -237,31 +295,25 @@ class FleetManagementAPI:
     def create_scenario(self, name: str, parameters: Dict, results: Dict) -> Dict:
         """Save a what-if scenario for comparison."""
         try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-            
             scenario_id = f"SCN_{uuid.uuid4().hex[:8]}"
-            
-            cursor.execute("""
-                INSERT INTO scenarios 
-                (scenario_id, name, description, parameters, results, 
-                 total_distance_km, total_time_minutes, total_emissions_kg, cost_estimate)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (
-                scenario_id,
-                name,
-                parameters.get('description', ''),
-                json.dumps(parameters),
-                json.dumps(results),
-                results.get('distance_km', results.get('total_distance_km', 0)),
-                results.get('time_minutes', results.get('total_time_minutes', 0)),
-                results.get('co2_kg', results.get('total_emissions_kg', 0)),
-                results.get('cost_estimate', 0)
-            ))
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
+
+            with transaction(self.db.get_connection()) as cursor:
+                cursor.execute("""
+                    INSERT INTO scenarios
+                    (scenario_id, name, description, parameters, results,
+                     total_distance_km, total_time_minutes, total_emissions_kg, cost_estimate)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    scenario_id,
+                    name,
+                    parameters.get('description', ''),
+                    json.dumps(parameters),
+                    json.dumps(results),
+                    results.get('distance_km', results.get('total_distance_km', 0)),
+                    results.get('time_minutes', results.get('total_time_minutes', 0)),
+                    results.get('co2_kg', results.get('total_emissions_kg', 0)),
+                    results.get('cost_estimate', 0)
+                ))
             
             return {'success': True, 'scenario_id': scenario_id}
         

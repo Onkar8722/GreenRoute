@@ -13,32 +13,73 @@ import threading
 import time
 import logging
 from copy import deepcopy
-from io import StringIO
 from datetime import datetime, timedelta
 
 # Add parent directory to Python path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from flask import Flask, jsonify, redirect, render_template, request, url_for
-import psycopg2
-from psycopg2.extras import Json, RealDictCursor
+try:
+    from flask import Flask, jsonify, redirect, render_template, request, url_for
+    import psycopg2
+    from psycopg2.extras import Json, RealDictCursor
 
-# Import new modules
-from .models import (
-    BinResponse, AlertResponse, RouteResponse, 
-    VehicleTelemetryCreate, StatsResponse, HealthCheckResponse
-)
-from .cache import get_cache, CACHE_TTL
-from .db import DatabaseManager, init_database
-from .mqtt_listener import MQTTListener
-from config.config import Config, get_config
-from .genetic_algorithm import GeneticAlgorithm
-from .forecasting import WasteForecaster
-from .fleet_management_api import FleetManagementAPI
-from .collection_window_predictor import CollectionWindowPredictor
-from .osmnx_routing import calculate_detailed_path, load_city_graph, build_distance_matrix
-from sklearn.cluster import KMeans
-import numpy as np
+    if __package__:
+        from .models import (
+            BinResponse, AlertResponse, RouteResponse,
+            VehicleTelemetryCreate, StatsResponse, HealthCheckResponse
+        )
+        from .cache import get_cache, CACHE_TTL
+        from .db import DatabaseManager, init_database
+        from .mqtt_listener import MQTTListener
+        from .genetic_algorithm import GeneticAlgorithm
+        from .forecasting import WasteForecaster
+        from .fleet_management_api import FleetManagementAPI, validate_schedule_payload
+        from .collection_window_predictor import CollectionWindowPredictor
+        from .osmnx_routing import calculate_detailed_path, load_city_graph, build_distance_matrix
+        from .security import protect_write_endpoints
+        from .bin_upload import MAX_BIN_UPLOAD_BYTES, register_bins_upload_endpoint
+        from .telemetry_storage import save_telemetry
+    else:
+        from src.models import (
+            BinResponse, AlertResponse, RouteResponse,
+            VehicleTelemetryCreate, StatsResponse, HealthCheckResponse
+        )
+        from src.cache import get_cache, CACHE_TTL
+        from src.db import DatabaseManager, init_database
+        from src.mqtt_listener import MQTTListener
+        from src.genetic_algorithm import GeneticAlgorithm
+        from src.forecasting import WasteForecaster
+        from src.fleet_management_api import FleetManagementAPI, validate_schedule_payload
+        from src.collection_window_predictor import CollectionWindowPredictor
+        from src.osmnx_routing import calculate_detailed_path, load_city_graph, build_distance_matrix
+        from src.security import protect_write_endpoints
+        from src.bin_upload import MAX_BIN_UPLOAD_BYTES, register_bins_upload_endpoint
+        from src.telemetry_storage import save_telemetry
+
+    from config.config import Config, get_config
+    from sklearn.cluster import KMeans
+    import numpy as np
+except ModuleNotFoundError as exc:
+    distribution_by_module = {
+        "flask": "flask",
+        "psycopg2": "psycopg2-binary",
+        "redis": "redis",
+        "pydantic": "pydantic",
+        "paho": "paho-mqtt",
+        "sklearn": "scikit-learn",
+        "numpy": "numpy",
+        "dotenv": "python-dotenv",
+        "osmnx": "osmnx",
+        "networkx": "networkx",
+    }
+    distribution = distribution_by_module.get((exc.name or "").split(".")[0])
+    if not distribution:
+        raise
+    raise ModuleNotFoundError(
+        f"GreenRoute requires the '{distribution}' dependency "
+        f"(import failed for '{exc.name}': {exc}). Install project dependencies with "
+        "'python -m pip install -r requirements.txt'."
+    ) from exc
 
 # Setup logging
 logging.basicConfig(
@@ -55,9 +96,14 @@ DEPOT = {"lat": 18.5204, "lng": 73.8567, "id": "DEPOT"}
 
 # Load configuration
 try:
-    config = get_config(os.getenv('FLASK_ENV', 'development'))
+    config = get_config()
     DB_CONFIG = config.DB_CONFIG
 except Exception as e:
+    requested_env = os.getenv('FLASK_ENV', 'development').strip().lower()
+    testing_requested = os.getenv('TESTING', '').lower() == 'true'
+    if requested_env in {'production', 'testing'} or testing_requested:
+        mode = 'TESTING' if testing_requested or requested_env == 'testing' else 'Production'
+        raise RuntimeError(f"{mode} configuration could not be loaded") from e
     logger.warning(f"Config load error (using defaults): {e}")
     # Use default config
     DB_CONFIG = {
@@ -75,16 +121,58 @@ static_folder = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 
 # Initialize Flask
 app = Flask(__name__, template_folder=template_folder, static_folder=static_folder)
+app.config['MAX_CONTENT_LENGTH'] = MAX_BIN_UPLOAD_BYTES
 if config:
     app.config['SECRET_KEY'] = config.SECRET_KEY
     app.config['DEBUG'] = config.DEBUG
+    app.config['TESTING'] = config.TESTING
+    app.config['HOST'] = config.HOST
+    app.config['WRITE_API_TOKEN'] = config.WRITE_API_TOKEN
 else:
-    app.config['SECRET_KEY'] = 'dev-key-change-in-production'
+    app.config['SECRET_KEY'] = os.urandom(32)
     app.config['DEBUG'] = False
+    app.config['TESTING'] = False
+    app.config['HOST'] = '127.0.0.1'
+    app.config['WRITE_API_TOKEN'] = ''
 
-# Initialize services
-cache = get_cache()
-db_manager = DatabaseManager(DB_CONFIG)
+app.before_request(protect_write_endpoints)
+
+
+def _is_testing_mode() -> bool:
+    """Return whether configuration or the Flask app selected test mode."""
+    return bool((config and config.TESTING) or app.config.get('TESTING'))
+
+
+class DisabledCache:
+    """Cache adapter used when external cache access is disabled."""
+
+    available = False
+
+    def get(self, category, identifier):
+        return None
+
+    def set(self, category, identifier, value, ttl=None):
+        return False
+
+    def health_check(self):
+        return False
+
+
+# Do not initialize external services while importing the app module. Normal
+# startup creates them in create_app(); test mode keeps the no-op adapters.
+cache = DisabledCache()
+
+
+class TestSafeDatabaseManager(DatabaseManager):
+    """Database manager that refuses every connection in test mode."""
+
+    def create_connection(self):
+        if _is_testing_mode():
+            raise RuntimeError("Database connections are disabled in TESTING mode.")
+        return super().create_connection()
+
+
+db_manager = TestSafeDatabaseManager(DB_CONFIG)
 mqtt_listener = None  # Will be initialized on startup
 forecaster = None  # Will be initialized on startup
 
@@ -106,6 +194,8 @@ SIMULATION_STATE = {
 
 def get_db_connection():
     """Create database connection."""
+    if _is_testing_mode():
+        raise RuntimeError("Database connections are disabled in TESTING mode.")
     return psycopg2.connect(**DB_CONFIG)
 
 def load_bins_from_db() -> list[dict]:
@@ -147,127 +237,6 @@ def load_bins_from_db() -> list[dict]:
         # Fallback to CSV if database fails
         return load_bins_from_csv()
 
-
-def record_fill_history(bin_id: str, fill_level: int, recorded_at: datetime):
-    """Append fill history record for a bin."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            "INSERT INTO fill_history (bin_id, fill_level, recorded_at) VALUES (%s, %s, %s)",
-            (bin_id, fill_level, recorded_at),
-        )
-        conn.commit()
-    except Exception as exc:
-        conn.rollback()
-        print(f"Failed to insert fill history: {exc}")
-    finally:
-        cursor.close()
-        conn.close()
-
-
-def create_alert(bin_id: str, alert_type: str, severity: str, message: str):
-    """Create an alert entry for a bin."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            "INSERT INTO alerts (bin_id, alert_type, severity, message) VALUES (%s, %s, %s, %s)",
-            (bin_id, alert_type, severity, message),
-        )
-        conn.commit()
-    except Exception as exc:
-        conn.rollback()
-        print(f"Failed to create alert: {exc}")
-    finally:
-        cursor.close()
-        conn.close()
-
-
-def save_vehicle_telemetry(payload: dict):
-    """Save incoming vehicle telemetry to the database."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            """
-            INSERT INTO vehicle_telemetry (
-                truck_id, gps_latitude, gps_longitude, gps_accuracy,
-                speed_kmh, heading_degrees, harsh_braking_events,
-                harsh_acceleration_events, idle_duration_min,
-                fuel_consumption_liters_per_km, engine_temp_celsius,
-                engine_diagnostics, driver_id, recorded_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                payload.get('truck_id'),
-                payload.get('gps_latitude'),
-                payload.get('gps_longitude'),
-                payload.get('gps_accuracy'),
-                payload.get('speed_kmh'),
-                payload.get('heading_degrees'),
-                payload.get('harsh_braking_events', 0),
-                payload.get('harsh_acceleration_events', 0),
-                payload.get('idle_duration_min', 0),
-                payload.get('fuel_consumption_liters_per_km'),
-                payload.get('engine_temp_celsius'),
-                psycopg2.extras.Json(payload.get('engine_diagnostics', {})),
-                payload.get('driver_id'),
-                payload.get('recorded_at', datetime.now()),
-            ),
-        )
-        conn.commit()
-    except Exception as exc:
-        conn.rollback()
-        print(f"Failed to save telemetry: {exc}")
-        raise
-    finally:
-        cursor.close()
-        conn.close()
-
-
-def update_bin_from_sensor(bin_id: str, fill_level: int, status: int | None = None):
-    """Update bin current status from sensor telemetry."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        if status is None:
-            cursor.execute(
-                "UPDATE bins SET fill_level = %s, last_updated = %s WHERE id = %s",
-                (fill_level, datetime.now(), bin_id),
-            )
-        else:
-            cursor.execute(
-                "UPDATE bins SET fill_level = %s, status = %s, last_updated = %s WHERE id = %s",
-                (fill_level, status, datetime.now(), bin_id),
-            )
-        conn.commit()
-    except Exception as exc:
-        conn.rollback()
-        print(f"Failed to update bin: {exc}")
-    finally:
-        cursor.close()
-        conn.close()
-
-
-def update_bin_from_sensor_and_alert(bin_id: str, fill_level: int, status: int | None = None):
-    """Update bin status and create an alert if needed."""
-    update_bin_from_sensor(bin_id, fill_level, status)
-    record_fill_history(bin_id, fill_level, datetime.now())
-    if fill_level >= 90:
-        create_alert(
-            bin_id,
-            "overflow",
-            "high",
-            f"Bin fill level is critically high at {fill_level}%",
-        )
-    if status == 2:
-        create_alert(
-            bin_id,
-            "malfunction",
-            "critical",
-            "Bin sensor reports malfunction",
-        )
 
 def load_bins_from_csv() -> list[dict]:
     """Fallback: Load bins from CSV file."""
@@ -324,13 +293,11 @@ def get_simulation_status() -> dict:
 
 def process_simulation_payload(payload: dict, event_type: str):
     try:
-        save_vehicle_telemetry(payload)
-        if payload.get("bin_id") and payload.get("fill_level") is not None:
-            update_bin_from_sensor_and_alert(
-                payload["bin_id"],
-                int(payload["fill_level"]),
-                int(payload.get("status", 0)) if payload.get("status") is not None else None,
-            )
+        save_telemetry(
+            get_db_connection(),
+            payload,
+            Json,
+        )
         with SIMULATION_LOCK:
             if event_type == "truck":
                 SIMULATION_STATE["total_telemetry_sent"] += 1
@@ -979,9 +946,6 @@ def api_route():
     adaptive = bool(body.get("adaptive", False) or algo == "adaptive")
     eligible = [b for b in bins if b["fill"] >= threshold]
     
-    # Clear cache when computing new routes (they will change)
-    cache.delete_pattern('routes:*')
-    
     routes = compute_routes_logic(eligible, algo, num_trucks, max_stops, threshold, adaptive)
     distances = [round(route_distance_km(r), 2) for r in routes]
     skipped = skipped_bins(eligible, routes)
@@ -1100,14 +1064,13 @@ def api_fleet_schedule():
         routes = body.get('routes', [])
         drivers = body.get('drivers', [])
         vehicles = body.get('vehicles', [])
-        
-        if not routes or not drivers or not vehicles:
-            return jsonify({"error": "Missing routes, drivers, or vehicles"}), 400
+        validation_error = validate_schedule_payload(routes, drivers, vehicles)
+        if validation_error:
+            return jsonify({"error": validation_error}), 400
         
         fleet_api = FleetManagementAPI(db_manager, cache)
         result = fleet_api.schedule_routes(routes, drivers, vehicles)
-        
-        return jsonify(result)
+        return jsonify(result), 200 if result.get("success") else 500
     except Exception as e:
         logger.error(f"Fleet scheduling error: {e}")
         return jsonify({"error": str(e)}), 500
@@ -1206,6 +1169,11 @@ def api_scenarios_compare():
 @app.get("/api/collection-windows")
 def api_collection_windows():
     """Get predicted collection windows for all bins."""
+    if _is_testing_mode():
+        return jsonify({
+            "error": "Collection-window prediction is disabled in TESTING mode."
+        }), 503
+
     try:
         bins_data = get_bins_data()
         predictor = CollectionWindowPredictor(DB_CONFIG)
@@ -1220,72 +1188,7 @@ def api_collection_windows():
         logger.error(f"Collection window prediction error: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.post("/api/bins_upload")
-def api_bins_upload():
-    if "file" not in request.files:
-        return jsonify({"error": "missing file field 'file'"}), 400
-    f = request.files["file"]
-    if not f.filename:
-        return jsonify({"error": "empty filename"}), 400
-    text = f.read().decode("utf-8", errors="replace")
-    reader = csv.DictReader(StringIO(text))
-    expected = {"bin_id", "latitude", "longitude", "fill_level", "status"}
-    if not reader.fieldnames or not expected.issubset(set(reader.fieldnames)):
-        return jsonify(
-            {
-                "error": "CSV must include columns: bin_id, latitude, longitude, fill_level, status (timestamp optional)",
-            }
-        ), 400
-
-    new_bins: list[dict] = []
-    for row in reader:
-        if not row.get("bin_id"):
-            continue
-        fill_val = int(float(row["fill_level"]))
-        new_bins.append({
-            "id": row["bin_id"].strip(),
-            "lat": float(row["latitude"]),
-            "lng": float(row["longitude"]),
-            "fill": fill_val,
-            "status": 1 if fill_val >= 80 else 0,
-        })
-
-    if len(new_bins) == 0:
-        return jsonify({"error": "no data rows parsed"}), 400
-
-    # Save to database
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        # Clear existing data
-        cursor.execute("TRUNCATE TABLE bins CASCADE")
-
-        # Insert new bins
-        for bin_data in new_bins:
-            cursor.execute("""
-                INSERT INTO bins (id, latitude, longitude, fill_level, status, last_updated, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (id) DO UPDATE SET
-                    latitude = EXCLUDED.latitude,
-                    longitude = EXCLUDED.longitude,
-                    fill_level = EXCLUDED.fill_level,
-                    status = EXCLUDED.status,
-                    last_updated = EXCLUDED.last_updated
-            """, (
-                bin_data['id'], bin_data['lat'], bin_data['lng'],
-                bin_data['fill'], bin_data['status'],
-                datetime.now(), datetime.now()
-            ))
-
-        conn.commit()
-        cursor.close()
-        conn.close()
-
-        return jsonify({"ok": True, "count": len(new_bins), "message": f"Saved {len(new_bins)} bins to database"})
-
-    except Exception as e:
-        return jsonify({"error": f"Database error: {str(e)}"}), 500
+register_bins_upload_endpoint(app, get_db_connection)
 
 
 @app.post("/api/telemetry")
@@ -1307,15 +1210,10 @@ def api_telemetry():
             recorded_at = datetime.fromisoformat(recorded_at)
         payload["recorded_at"] = recorded_at
 
-        save_vehicle_telemetry(payload)
-
-        bin_id = payload.get("bin_id")
-        if bin_id and payload.get("fill_level") is not None:
-            update_bin_from_sensor_and_alert(
-                bin_id,
-                int(payload["fill_level"]),
-                int(payload.get("status", 0)) if payload.get("status") is not None else None,
-            )
+        if payload.get("bin_id") and payload.get("fill_level") is not None:
+            payload["fill_level"] = int(payload["fill_level"])
+            payload["status"] = int(payload.get("status", 0)) if payload.get("status") is not None else None
+        save_telemetry(get_db_connection(), payload, Json)
 
         return jsonify({"ok": True, "message": "Telemetry received"})
     except Exception as e:
@@ -1428,6 +1326,7 @@ def api_simulation_logs():
 
 def create_app():
     """Initialize and configure the Flask application."""
+    global cache
     global mqtt_listener
     global db_manager
     global forecaster
@@ -1435,6 +1334,23 @@ def create_app():
     logger.info("=" * 60)
     logger.info("Initializing GreenRoute Flask Application")
     logger.info("=" * 60)
+
+    if _is_testing_mode():
+        cache = DisabledCache()
+        mqtt_listener = None
+        forecaster = None
+        logger.info(
+            "TESTING mode: database, cache, model training, and MQTT startup are disabled"
+        )
+        return app
+
+    # Redis connections are deferred until normal startup so importing the app
+    # for tests cannot contact an external service.
+    cache = (
+        get_cache()
+        if config is None or (config and config.REDIS_ENABLED)
+        else DisabledCache()
+    )
     
     # Test database connection
     try:
@@ -1501,8 +1417,11 @@ def create_app():
 
 
 if __name__ == "__main__":
+    if _is_testing_mode():
+        raise SystemExit("Refusing to start the Flask server in TESTING mode.")
     ensure_data_file()
     app = create_app()
     port = int(os.environ.get("PORT", 5000))
-    logger.info(f"Starting Flask server on 0.0.0.0:{port}")
-    app.run(host="0.0.0.0", port=port, debug=config.DEBUG)
+    host = app.config.get("HOST", "127.0.0.1")
+    logger.info(f"Starting Flask server on {host}:{port}")
+    app.run(host=host, port=port, debug=app.config["DEBUG"])

@@ -218,6 +218,16 @@
         let currentRouteMarkers = [];
         let currentRoute = null;
 
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>"']/g, char => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            })[char]);
+        }
+
         // Initialize map
         function initMap() {
             map = L.map('map').setView([18.5204, 73.8567], 12);
@@ -253,7 +263,7 @@
                         weight: 1,
                         opacity: 0.7,
                         fillOpacity: 0.6
-                    }).addTo(map).bindPopup(`Bin ${bin.id}: ${bin.fill.toFixed(1)}%`);
+                    }).addTo(map).bindPopup(`Bin ${escapeHtml(bin.id)}: ${bin.fill.toFixed(1)}%`);
                 });
                 
                 // Add depot
@@ -329,7 +339,7 @@
                             permanent: true
                         });
                         
-                        marker.bindPopup(`Stop ${idx + 1}<br>Bin ${id}<br>Fill: ${binMap[id].fill.toFixed(1)}%`);
+                        marker.bindPopup(`Stop ${idx + 1}<br>Bin ${escapeHtml(id)}<br>Fill: ${binMap[id].fill.toFixed(1)}%`);
                         currentRouteMarkers.push(marker);
                     }
                 });
@@ -420,7 +430,7 @@
                 
             } catch(e) {
                 document.getElementById('loadingArea').style.display = 'none';
-                const errorHtml = `<div class="error"><i class="fas fa-exclamation-circle"></i> ${e.message}</div>`;
+                const errorHtml = `<div class="error"><i class="fas fa-exclamation-circle"></i> ${escapeHtml(e.message)}</div>`;
                 document.getElementById('errorArea').innerHTML = errorHtml;
                 document.getElementById('errorArea').style.display = 'block';
             } finally {

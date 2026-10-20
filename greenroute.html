@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GreenRoute — Smart Waste Route Optimizer</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --green: #2ea043; --green-light: #56d364; --green-dim: #1a3a27;
+    --orange: #d29922; --orange-light: #e3b341; --orange-dim: #3d2e0a;
+    --red: #f85149; --red-light: #ff7b72; --red-dim: #3d0c0a;
+    --blue: #388bfd; --blue-dim: #0d2457;
+    --text: #e6edf3; --text-muted: #8b949e; --text-dim: #484f58;
+    --font: 'Segoe UI', system-ui, sans-serif;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:var(--font); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+
+  /* HEADER */
+  header { background:var(--panel); border-bottom:1px solid var(--border); padding:12px 20px; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
+  .logo { display:flex; align-items:center; gap:10px; }
+  .logo-icon { width:32px; height:32px; background:var(--green); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:18px; }
+  .logo h1 { font-size:18px; font-weight:700; letter-spacing:-0.5px; }
+  .logo span { color:var(--green-light); }
+  .header-meta { font-size:12px; color:var(--text-muted); text-align:right; }
+  .header-meta strong { color:var(--orange-light); }
+  .status-badge { display:inline-flex; align-items:center; gap:5px; background:var(--green-dim); color:var(--green-light); border:1px solid var(--green); border-radius:12px; padding:3px 10px; font-size:11px; font-weight:600; }
+  .status-badge::before { content:''; width:6px; height:6px; border-radius:50%; background:var(--green-light); animation:pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* LAYOUT */
+  .main { display:flex; flex:1; overflow:hidden; }
+
+  /* SIDEBAR */
+  .sidebar { width:320px; background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; flex-shrink:0; }
+  .sidebar-tabs { display:flex; border-bottom:1px solid var(--border); }
+  .tab-btn { flex:1; padding:10px 8px; font-size:12px; font-weight:600; cursor:pointer; background:none; border:none; color:var(--text-muted); border-bottom:2px solid transparent; transition:all .2s; }
+  .tab-btn.active { color:var(--green-light); border-bottom-color:var(--green-light); }
+  .tab-btn:hover:not(.active) { color:var(--text); background:rgba(255,255,255,.03); }
+  .tab-content { display:none; flex:1; overflow-y:auto; padding:12px; flex-direction:column; gap:8px; }
+  .tab-content.active { display:flex; }
+
+  /* STATS CARDS */
+  .stats-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .stat-card { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+  .stat-card .label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:var(--text-muted); margin-bottom:4px; }
+  .stat-card .value { font-size:22px; font-weight:700; line-height:1; }
+  .stat-card .sub { font-size:10px; color:var(--text-muted); margin-top:3px; }
+  .stat-card.critical .value { color:var(--red-light); }
+  .stat-card.high .value { color:var(--orange-light); }
+  .stat-card.medium .value { color:#e3b341; }
+  .stat-card.ok .value { color:var(--green-light); }
+
+  /* FILL BAR */
+  .fill-bar-wrap { margin-top:10px; }
+  .fill-bar-label { display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); margin-bottom:6px; }
+  .fill-bar-track { height:8px; background:var(--bg); border-radius:4px; overflow:hidden; display:flex; }
+  .fill-segment { height:100%; transition:width .5s; }
+
+  /* SECTION HEADER */
+  .section-header { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.8px; color:var(--text-muted); padding:4px 0; border-bottom:1px solid var(--border); margin-bottom:4px; }
+
+  /* ROUTE CONTROLS */
+  .controls { display:flex; flex-direction:column; gap:8px; }
+  .control-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .control-row label { font-size:12px; color:var(--text-muted); }
+  select, input[type=range] { background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:5px 8px; font-size:12px; }
+  select { width:140px; cursor:pointer; }
+  input[type=range] { width:120px; accent-color:var(--green); }
+  .range-val { font-size:12px; color:var(--green-light); font-weight:600; min-width:28px; text-align:right; }
+  .btn { padding:8px 14px; border-radius:6px; border:none; cursor:pointer; font-size:12px; font-weight:600; transition:all .2s; }
+  .btn-primary { background:var(--green); color:#fff; }
+  .btn-primary:hover { background:var(--green-light); color:#000; }
+  .btn-primary:active { transform:scale(.97); }
+  .btn-secondary { background:var(--bg); border:1px solid var(--border); color:var(--text-muted); }
+  .btn-secondary:hover { border-color:var(--green); color:var(--green-light); }
+  .btn-row { display:flex; gap:6px; }
+
+  /* ROUTE SUMMARY */
+  .route-summary { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:12px; }
+  .route-meta { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .route-meta-item { text-align:center; }
+  .route-meta-item .val { font-size:18px; font-weight:700; color:var(--green-light); }
+  .route-meta-item .lbl { font-size:10px; color:var(--text-muted); margin-top:2px; }
+  .route-stops { margin-top:10px; max-height:220px; overflow-y:auto; }
+  .route-stop { display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--border); font-size:11px; }
+  .route-stop:last-child { border-bottom:none; }
+  .stop-num { width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; flex-shrink:0; }
+  .stop-depot { background:var(--blue); color:#fff; }
+  .stop-critical { background:var(--red); color:#fff; }
+  .stop-high { background:var(--orange); color:#000; }
+  .stop-medium { background:#e3b341; color:#000; }
+  .stop-id { font-weight:600; flex:1; }
+  .stop-fill { font-weight:700; }
+  .stop-dist { color:var(--text-muted); font-size:10px; }
+
+  /* BIN LIST */
+  .bin-search { display:flex; align-items:center; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:6px 10px; gap:6px; margin-bottom:8px; }
+  .bin-search input { background:none; border:none; color:var(--text); font-size:12px; flex:1; outline:none; }
+  .bin-search span { color:var(--text-dim); }
+  .bin-list { display:flex; flex-direction:column; gap:4px; overflow-y:auto; }
+  .bin-item { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px 10px; cursor:pointer; transition:all .15s; display:flex; align-items:center; gap:8px; }
+  .bin-item:hover { border-color:var(--green); }
+  .bin-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .bin-info { flex:1; min-width:0; }
+  .bin-info .id { font-size:11px; font-weight:600; }
+  .bin-info .loc { font-size:10px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .fill-pill { font-size:11px; font-weight:700; padding:2px 7px; border-radius:10px; }
+
+  /* MAP */
+  #map { flex:1; }
+  .leaflet-popup-content-wrapper { background:var(--panel) !important; border:1px solid var(--border) !important; color:var(--text) !important; border-radius:8px !important; }
+  .leaflet-popup-tip { background:var(--panel) !important; }
+  .popup-title { font-weight:700; font-size:13px; margin-bottom:6px; }
+  .popup-row { display:flex; justify-content:space-between; font-size:11px; margin:3px 0; color:var(--text-muted); }
+  .popup-row span { color:var(--text); font-weight:600; }
+  .popup-fill-bar { height:6px; background:#30363d; border-radius:3px; margin-top:6px; overflow:hidden; }
+  .popup-fill-inner { height:100%; border-radius:3px; }
+
+  /* LEGEND */
+  .map-legend { position:absolute; bottom:20px; left:330px; z-index:1000; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:10px 14px; font-size:11px; }
+  .legend-row { display:flex; align-items:center; gap:6px; margin:3px 0; }
+  .legend-dot { width:10px; height:10px; border-radius:50%; }
+
+  /* ROUTE PANEL overlay */
+  .route-overlay { position:absolute; top:10px; right:10px; z-index:1000; background:var(--panel); border:1px solid var(--green); border-radius:8px; padding:10px 14px; font-size:11px; min-width:180px; display:none; }
+  .route-overlay.visible { display:block; }
+  .route-overlay-title { font-weight:700; color:var(--green-light); margin-bottom:6px; font-size:12px; }
+  .route-overlay-row { display:flex; justify-content:space-between; margin:3px 0; }
+  .route-overlay-row span { color:var(--green-light); font-weight:700; }
+
+  /* ALERT TICKER */
+  .alert-ticker { background:var(--red-dim); border-top:1px solid var(--red); padding:5px 20px; font-size:11px; color:var(--red-light); display:flex; align-items:center; gap:8px; flex-shrink:0; }
+  .alert-ticker strong { color:#fff; }
+  .ticker-scroll { flex:1; overflow:hidden; white-space:nowrap; }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width:4px; } ::-webkit-scrollbar-track { background:transparent; } ::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  .tab-content::-webkit-scrollbar { width:3px; }
+
+  /* TOAST */
+  .toast { position:fixed; bottom:30px; right:20px; background:var(--green-dim); border:1px solid var(--green); color:var(--green-light); padding:10px 16px; border-radius:8px; font-size:12px; font-weight:600; z-index:9999; opacity:0; transform:translateY(10px); transition:all .3s; pointer-events:none; }
+  .toast.show { opacity:1; transform:translateY(0); }
+
+  .empty-state { text-align:center; padding:30px 10px; color:var(--text-muted); font-size:12px; }
+  .empty-state .icon { font-size:32px; margin-bottom:8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🗺</div>
+    <h1>Green<span>Route</span></h1>
+    <span style="font-size:11px;color:var(--text-muted);margin-left:4px;">Pune Smart Waste System</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:16px;">
+    <div class="status-badge">LIVE DATA</div>
+    <div class="header-meta">
+      Dataset: 2026-03-05 05:27 IST<br>
+      <strong>400 bins</strong> monitored across Pune
+    </div>
+  </div>
+</header>
+
+<div class="main">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-tabs">
+      <button class="tab-btn active" onclick="switchTab('overview')">📊 Overview</button>
+      <button class="tab-btn" onclick="switchTab('route')">🗺 Route</button>
+      <button class="tab-btn" onclick="switchTab('bins')">🗑 Bins</button>
+    </div>
+
+    <!-- OVERVIEW TAB -->
+    <div class="tab-content active" id="tab-overview">
+      <div class="stats-grid">
+        <div class="stat-card critical">
+          <div class="label">🔴 Critical</div>
+          <div class="value" id="stat-critical">91</div>
+          <div class="sub">≥80% full · needs collection</div>
+        </div>
+        <div class="stat-card high">
+          <div class="label">🟠 High</div>
+          <div class="value" id="stat-high">89</div>
+          <div class="sub">60–79% · monitor closely</div>
+        </div>
+        <div class="stat-card medium">
+          <div class="label">🟡 Medium</div>
+          <div class="value" id="stat-medium">90</div>
+          <div class="sub">40–59% · okay for now</div>
+        </div>
+        <div class="stat-card ok">
+          <div class="label">🟢 Low</div>
+          <div class="value" id="stat-low">130</div>
+          <div class="sub">&lt;40% · no action needed</div>
+        </div>
+      </div>
+
+      <div class="fill-bar-wrap">
+        <div class="fill-bar-label"><span>City Fill Distribution</span><span id="avg-fill-label">Avg: 57%</span></div>
+        <div class="fill-bar-track">
+          <div class="fill-segment" id="seg-critical" style="background:var(--red);"></div>
+          <div class="fill-segment" id="seg-high" style="background:var(--orange);"></div>
+          <div class="fill-segment" id="seg-medium" style="background:#e3b341;"></div>
+          <div class="fill-segment" id="seg-low" style="background:var(--green);"></div>
+        </div>
+      </div>
+
+      <div class="section-header">Fleet Status</div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="label">Trucks Active</div>
+          <div class="value" style="color:var(--blue)">3</div>
+          <div class="sub">available for routing</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Overflow Bins</div>
+          <div class="value" style="color:var(--red-light)" id="stat-overflow">91</div>
+          <div class="sub">status = 1 · urgent</div>
+        </div>
+      </div>
+
+      <div class="section-header">Efficiency Metrics</div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="label">Est. Fuel Save</div>
+          <div class="value" style="color:var(--green-light)">28%</div>
+          <div class="sub">vs. fixed schedule</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Route Coverage</div>
+          <div class="value" style="color:var(--green-light)" id="stat-coverage">0</div>
+          <div class="sub">bins in active route</div>
+        </div>
+      </div>
+
+      <div class="section-header" style="margin-top:4px;">Quick Actions</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <button class="btn btn-primary" style="width:100%;padding:10px;" onclick="switchTab('route');autoOptimize()">⚡ Auto-Optimize All Routes</button>
+        <button class="btn btn-secondary" style="width:100%;padding:10px;" onclick="switchTab('bins')">🔍 Browse All Bins</button>
+      </div>
+    </div>
+
+    <!-- ROUTE TAB -->
+    <div class="tab-content" id="tab-route">
+      <div class="section-header">Route Configuration</div>
+      <div class="controls">
+        <div class="control-row">
+          <label>Priority Threshold</label>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <input type="range" id="thresh-slider" min="40" max="95" value="60" oninput="document.getElementById('thresh-val').textContent=this.value+'%'">
+            <span class="range-val" id="thresh-val">60%</span>
+          </div>
+        </div>
+        <div class="control-row">
+          <label>Algorithm</label>
+          <select id="algo-select">
+            <option value="nearest">Nearest Neighbor</option>
+            <option value="priority" selected>Priority + Proximity</option>
+            <option value="cluster">Cluster-Based</option>
+          </select>
+        </div>
+        <div class="control-row">
+          <label>Max Stops/Route</label>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <input type="range" id="stops-slider" min="5" max="50" value="20" oninput="document.getElementById('stops-val').textContent=this.value">
+            <span class="range-val" id="stops-val">20</span>
+          </div>
+        </div>
+        <div class="control-row">
+          <label>Trucks</label>
+          <select id="trucks-select">
+            <option value="1">1 Truck</option>
+            <option value="2">2 Trucks</option>
+            <option value="3" selected>3 Trucks</option>
+          </select>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" style="flex:1;" onclick="computeRoutes()">🚛 Compute Routes</button>
+          <button class="btn btn-secondary" onclick="clearRoutes()">✕ Clear</button>
+        </div>
+      </div>
+
+      <div class="section-header" id="route-result-header" style="margin-top:8px;">Route Results</div>
+      <div id="route-result">
+        <div class="empty-state">
+          <div class="icon">🗺</div>
+          Configure parameters and click<br><strong>Compute Routes</strong> to generate<br>optimized collection paths
+        </div>
+      </div>
+    </div>
+
+    <!-- BINS TAB -->
+    <div class="tab-content" id="tab-bins">
+      <div class="bin-search">
+        <span>🔍</span>
+        <input type="text" id="bin-search-input" placeholder="Search bin ID or filter..." oninput="filterBins(this.value)">
+      </div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">
+        <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px;" onclick="filterByLevel('all')">All</button>
+        <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px;color:var(--red-light);border-color:var(--red);" onclick="filterByLevel('critical')">Critical</button>
+        <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px;color:var(--orange-light);border-color:var(--orange);" onclick="filterByLevel('high')">High</button>
+        <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px;color:#e3b341;border-color:#e3b341;" onclick="filterByLevel('medium')">Medium</button>
+        <button class="btn btn-secondary" style="font-size:10px;padding:3px 8px;color:var(--green-light);border-color:var(--green);" onclick="filterByLevel('low')">Low</button>
+      </div>
+      <div class="bin-list" id="bin-list"></div>
+    </div>
+  </div>
+
+  <!-- MAP -->
+  <div style="flex:1;position:relative;">
+    <div id="map"></div>
+    <div class="map-legend">
+      <div style="font-size:10px;font-weight:700;margin-bottom:5px;color:var(--text-muted);">BIN FILL LEVEL</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#f85149"></div> Critical ≥80%</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#d29922"></div> High 60–79%</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#e3b341"></div> Medium 40–59%</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#2ea043"></div> Low &lt;40%</div>
+      <div class="legend-row" style="margin-top:5px;"><div class="legend-dot" style="background:#388bfd;border-radius:3px;"></div> Depot / Truck</div>
+    </div>
+    <div class="route-overlay" id="route-overlay">
+      <div class="route-overlay-title">🚛 Active Route</div>
+      <div class="route-overlay-row">Stops: <span id="ov-stops">—</span></div>
+      <div class="route-overlay-row">Distance: <span id="ov-dist">—</span></div>
+      <div class="route-overlay-row">Priority bins: <span id="ov-priority">—</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="alert-ticker">
+  <strong>⚠ ALERTS</strong>
+  <div class="ticker-scroll" id="ticker">Loading alerts...</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================================
+// HOISTED STATE (var so inline onclick handlers can access before init)
+// ============================================================
+var markers = [];
+var routeLayers = [];
+var currentFilter = 'all';
+var currentSearch = '';
+var map = null;
+
+// ============================================================
+// DATA
+// ============================================================
+const BINS_DATA = [{"id":"PMC_BIN_001","lat":18.483026572097046,"lng":73.92932205259481,"fill":97,"status":1},{"id":"PMC_BIN_002","lat":18.462059955889988,"lng":73.86519968356113,"fill":77,"status":0},{"id":"PMC_BIN_003","lat":18.51745325062636,"lng":73.93347912261711,"fill":21,"status":0},{"id":"PMC_BIN_004","lat":18.458630650276696,"lng":73.75106000127953,"fill":68,"status":0},{"id":"PMC_BIN_005","lat":18.600724915321614,"lng":73.94501343258904,"fill":46,"status":0},{"id":"PMC_BIN_006","lat":18.45469485121853,"lng":73.84814975585176,"fill":70,"status":0},{"id":"PMC_BIN_007","lat":18.548407032236284,"lng":73.89457921932436,"fill":52,"status":0},{"id":"PMC_BIN_008","lat":18.524540600913074,"lng":73.91417229463067,"fill":79,"status":0},{"id":"PMC_BIN_009","lat":18.564244443000185,"lng":73.89369145416731,"fill":48,"status":0},{"id":"PMC_BIN_010","lat":18.505785953470703,"lng":73.85700734640898,"fill":65,"status":0},{"id":"PMC_BIN_011","lat":18.476357074843715,"lng":73.84532389682528,"fill":72,"status":0},{"id":"PMC_BIN_012","lat":18.61691295101279,"lng":73.91771651174052,"fill":55,"status":0},{"id":"PMC_BIN_013","lat":18.592618695351792,"lng":73.79101551202989,"fill":97,"status":1},{"id":"PMC_BIN_014","lat":18.596268785112986,"lng":73.94359881330085,"fill":20,"status":0},{"id":"PMC_BIN_015","lat":18.492542731287696,"lng":73.89219049576735,"fill":71,"status":0},{"id":"PMC_BIN_016","lat":18.456601904853002,"lng":73.78990138546766,"fill":86,"status":1},{"id":"PMC_BIN_017","lat":18.50155513749445,"lng":73.8972494367397,"fill":34,"status":0},{"id":"PMC_BIN_018","lat":18.54130401262343,"lng":73.85596800463622,"fill":80,"status":1},{"id":"PMC_BIN_019","lat":18.505530711105326,"lng":73.89144601912889,"fill":61,"status":0},{"id":"PMC_BIN_020","lat":18.59073773064389,"lng":73.90355590028857,"fill":13,"status":0},{"id":"PMC_BIN_021","lat":18.496162295689356,"lng":73.76745803591794,"fill":68,"status":0},{"id":"PMC_BIN_022","lat":18.614092811166433,"lng":73.85122079127187,"fill":81,"status":1},{"id":"PMC_BIN_023","lat":18.527735077474333,"lng":73.9364028684514,"fill":29,"status":0},{"id":"PMC_BIN_024","lat":18.593143922752038,"lng":73.81412843843191,"fill":72,"status":0},{"id":"PMC_BIN_025","lat":18.483044605779128,"lng":73.86877661951158,"fill":63,"status":0},{"id":"PMC_BIN_026","lat":18.519930163859634,"lng":73.82384609630198,"fill":83,"status":1},{"id":"PMC_BIN_027","lat":18.568917075830424,"lng":73.84085359444381,"fill":66,"status":0},{"id":"PMC_BIN_028","lat":18.473520025711025,"lng":73.85972062358763,"fill":99,"status":1},{"id":"PMC_BIN_029","lat":18.472566721781305,"lng":73.8597843959778,"fill":50,"status":0},{"id":"PMC_BIN_030","lat":18.614821267409408,"lng":73.79034609246605,"fill":12,"status":0},{"id":"PMC_BIN_031","lat":18.57148116771059,"lng":73.88691430957597,"fill":15,"status":0},{"id":"PMC_BIN_032","lat":18.456981477850537,"lng":73.76757362224853,"fill":14,"status":0},{"id":"PMC_BIN_033","lat":18.517799553245617,"lng":73.77776495468841,"fill":14,"status":0},{"id":"PMC_BIN_034","lat":18.523698525388728,"lng":73.75054217988287,"fill":63,"status":0},{"id":"PMC_BIN_035","lat":18.57648724930985,"lng":73.77333921282833,"fill":56,"status":0},{"id":"PMC_BIN_036","lat":18.49264628964893,"lng":73.84463324021038,"fill":96,"status":1},{"id":"PMC_BIN_037","lat":18.481336724636332,"lng":73.87122037621117,"fill":58,"status":0},{"id":"PMC_BIN_038","lat":18.463748404324924,"lng":73.9088578899933,"fill":18,"status":0},{"id":"PMC_BIN_039","lat":18.52281346073982,"lng":73.77133985002268,"fill":29,"status":0},{"id":"PMC_BIN_040","lat":18.567044983130113,"lng":73.9201454920033,"fill":70,"status":0},{"id":"PMC_BIN_041","lat":18.459892911236434,"lng":73.89919490510975,"fill":44,"status":0},{"id":"PMC_BIN_042","lat":18.605586333696504,"lng":73.83170365858719,"fill":59,"status":0},{"id":"PMC_BIN_043","lat":18.525199879054288,"lng":73.93658761341999,"fill":91,"status":1},{"id":"PMC_BIN_044","lat":18.49076385105676,"lng":73.94818589529149,"fill":71,"status":0},{"id":"PMC_BIN_045","lat":18.465958459313818,"lng":73.79100036201065,"fill":26,"status":0},{"id":"PMC_BIN_046","lat":18.481087219508243,"lng":73.82584571699276,"fill":97,"status":1},{"id":"PMC_BIN_047","lat":18.608884379547753,"lng":73.93528988471795,"fill":12,"status":0},{"id":"PMC_BIN_048","lat":18.55850600095337,"lng":73.89431931015025,"fill":41,"status":0},{"id":"PMC_BIN_049","lat":18.537838363762518,"lng":73.75961892879282,"fill":22,"status":0},{"id":"PMC_BIN_050","lat":18.56170892584503,"lng":73.90630289635028,"fill":98,"status":1},{"id":"PMC_BIN_051","lat":18.52406439277524,"lng":73.9155881774355,"fill":82,"status":1},{"id":"PMC_BIN_052","lat":18.57410668381551,"lng":73.90010038495306,"fill":77,"status":0},{"id":"PMC_BIN_053","lat":18.45811174170758,"lng":73.9099074261839,"fill":23,"status":0},{"id":"PMC_BIN_054","lat":18.546226325783994,"lng":73.91502653533855,"fill":20,"status":0},{"id":"PMC_BIN_055","lat":18.476969896099224,"lng":73.78728099735763,"fill":65,"status":0},{"id":"PMC_BIN_056","lat":18.470427990126957,"lng":73.797138349213,"fill":76,"status":0},{"id":"PMC_BIN_057","lat":18.508119543341788,"lng":73.87675171274404,"fill":38,"status":0},{"id":"PMC_BIN_058","lat":18.465605841188285,"lng":73.93157322609251,"fill":18,"status":0},{"id":"PMC_BIN_059","lat":18.466006688005656,"lng":73.8132393164593,"fill":76,"status":0},{"id":"PMC_BIN_060","lat":18.50294026259652,"lng":73.86766133515901,"fill":34,"status":0},{"id":"PMC_BIN_061","lat":18.616516789865656,"lng":73.88659641268343,"fill":85,"status":1},{"id":"PMC_BIN_062","lat":18.479806145881188,"lng":73.84038972025981,"fill":51,"status":0},{"id":"PMC_BIN_063","lat":18.4529173873114,"lng":73.89275649097107,"fill":18,"status":0},{"id":"PMC_BIN_064","lat":18.579771951910665,"lng":73.92993348905844,"fill":88,"status":1},{"id":"PMC_BIN_065","lat":18.58717520609863,"lng":73.87482030883636,"fill":49,"status":0},{"id":"PMC_BIN_066","lat":18.5088717345852,"lng":73.85795621238293,"fill":34,"status":0},{"id":"PMC_BIN_067","lat":18.528994548199734,"lng":73.83774893507767,"fill":14,"status":0},{"id":"PMC_BIN_068","lat":18.56046152604927,"lng":73.86549725418122,"fill":20,"status":0},{"id":"PMC_BIN_069","lat":18.458170017113495,"lng":73.82107249036368,"fill":68,"status":0},{"id":"PMC_BIN_070","lat":18.611354774370536,"lng":73.8282964220403,"fill":97,"status":1},{"id":"PMC_BIN_071","lat":18.60073566584067,"lng":73.85637149593764,"fill":88,"status":1},{"id":"PMC_BIN_072","lat":18.494351915968092,"lng":73.76332382247817,"fill":47,"status":0},{"id":"PMC_BIN_073","lat":18.452601771849366,"lng":73.79580507818496,"fill":81,"status":1},{"id":"PMC_BIN_074","lat":18.60868417237351,"lng":73.85856986212268,"fill":14,"status":0},{"id":"PMC_BIN_075","lat":18.535176780265594,"lng":73.83630562862729,"fill":57,"status":0},{"id":"PMC_BIN_076","lat":18.541694166228012,"lng":73.8165631571825,"fill":99,"status":1},{"id":"PMC_BIN_077","lat":18.566273840797685,"lng":73.89610982736187,"fill":27,"status":0},{"id":"PMC_BIN_078","lat":18.554694697946285,"lng":73.88874352148066,"fill":79,"status":0},{"id":"PMC_BIN_079","lat":18.61046157277533,"lng":73.78334615199867,"fill":46,"status":0},{"id":"PMC_BIN_080","lat":18.61052277151128,"lng":73.92572582307469,"fill":69,"status":0},{"id":"PMC_BIN_081","lat":18.59742381870435,"lng":73.84908472528079,"fill":57,"status":0},{"id":"PMC_BIN_082","lat":18.55818861156582,"lng":73.8982921822278,"fill":86,"status":1},{"id":"PMC_BIN_083","lat":18.58616138009601,"lng":73.86463016985148,"fill":37,"status":0},{"id":"PMC_BIN_084","lat":18.56511861820511,"lng":73.94953852318477,"fill":78,"status":0},{"id":"PMC_BIN_085","lat":18.547472397084228,"lng":73.90048062400777,"fill":86,"status":1},{"id":"PMC_BIN_086","lat":18.471845060049763,"lng":73.8913960922487,"fill":90,"status":1},{"id":"PMC_BIN_087","lat":18.58790471004512,"lng":73.90571438781015,"fill":49,"status":0},{"id":"PMC_BIN_088","lat":18.589508710876473,"lng":73.7786255971097,"fill":54,"status":0},{"id":"PMC_BIN_089","lat":18.556409743917268,"lng":73.79090891863389,"fill":71,"status":0},{"id":"PMC_BIN_090","lat":18.589472563441117,"lng":73.89281281644473,"fill":67,"status":0},{"id":"PMC_BIN_091","lat":18.560752411215823,"lng":73.84879629742618,"fill":76,"status":0},{"id":"PMC_BIN_092","lat":18.485136341179047,"lng":73.90092705837202,"fill":65,"status":0},{"id":"PMC_BIN_093","lat":18.496573391644592,"lng":73.77058320614883,"fill":49,"status":0},{"id":"PMC_BIN_094","lat":18.486480150350424,"lng":73.85729627029691,"fill":49,"status":0},{"id":"PMC_BIN_095","lat":18.514134044148754,"lng":73.82576431311138,"fill":86,"status":1},{"id":"PMC_BIN_096","lat":18.45662373249274,"lng":73.84140004385634,"fill":42,"status":0},{"id":"PMC_BIN_097","lat":18.555103160337442,"lng":73.87079157441451,"fill":15,"status":0},{"id":"PMC_BIN_098","lat":18.507214216531082,"lng":73.85045766949251,"fill":97,"status":1},{"id":"PMC_BIN_099","lat":18.561472848014727,"lng":73.85797212742257,"fill":28,"status":0},{"id":"PMC_BIN_100","lat":18.515517425564145,"lng":73.84727149639912,"fill":89,"status":1},{"id":"PMC_BIN_101","lat":18.565874323725374,"lng":73.8317910354171,"fill":49,"status":0},{"id":"PMC_BIN_102","lat":18.50790617680892,"lng":73.90437639611964,"fill":68,"status":0},{"id":"PMC_BIN_103","lat":18.4943180698001,"lng":73.75244061446361,"fill":68,"status":0},{"id":"PMC_BIN_104","lat":18.53432636722988,"lng":73.86968854024104,"fill":57,"status":0},{"id":"PMC_BIN_105","lat":18.56779136097763,"lng":73.8631016694646,"fill":50,"status":0},{"id":"PMC_BIN_106","lat":18.509217222757044,"lng":73.89323581494659,"fill":22,"status":0},{"id":"PMC_BIN_107","lat":18.60923018581547,"lng":73.86980587295547,"fill":54,"status":0},{"id":"PMC_BIN_108","lat":18.45666167553486,"lng":73.91535976556182,"fill":98,"status":1},{"id":"PMC_BIN_109","lat":18.521050825391647,"lng":73.94181495891281,"fill":62,"status":0},{"id":"PMC_BIN_110","lat":18.614488693758442,"lng":73.8185048514357,"fill":51,"status":0},{"id":"PMC_BIN_111","lat":18.543155220152176,"lng":73.795470196606,"fill":72,"status":0},{"id":"PMC_BIN_112","lat":18.52199006019238,"lng":73.8347193724841,"fill":36,"status":0},{"id":"PMC_BIN_113","lat":18.546648448237494,"lng":73.80758592329515,"fill":47,"status":0},{"id":"PMC_BIN_114","lat":18.547907177793874,"lng":73.87299005263053,"fill":69,"status":0},{"id":"PMC_BIN_115","lat":18.57438011840094,"lng":73.9323704817686,"fill":16,"status":0},{"id":"PMC_BIN_116","lat":18.471707254001817,"lng":73.77782323882862,"fill":14,"status":0},{"id":"PMC_BIN_117","lat":18.492502796366736,"lng":73.77015892060318,"fill":54,"status":0},{"id":"PMC_BIN_118","lat":18.548692482098463,"lng":73.80120310637074,"fill":67,"status":0},{"id":"PMC_BIN_119","lat":18.597409823225654,"lng":73.89521911721248,"fill":40,"status":0},{"id":"PMC_BIN_120","lat":18.545517337664442,"lng":73.86859258105177,"fill":32,"status":0},{"id":"PMC_BIN_121","lat":18.49056146616436,"lng":73.77044253284504,"fill":51,"status":0},{"id":"PMC_BIN_122","lat":18.56557361258304,"lng":73.93375010445216,"fill":19,"status":0},{"id":"PMC_BIN_123","lat":18.575784489276053,"lng":73.90801692742482,"fill":41,"status":0},{"id":"PMC_BIN_124","lat":18.490500145908676,"lng":73.75460452095753,"fill":62,"status":0},{"id":"PMC_BIN_125","lat":18.51421391064997,"lng":73.88027344219765,"fill":39,"status":0},{"id":"PMC_BIN_126","lat":18.540835670500197,"lng":73.90424933370394,"fill":48,"status":0},{"id":"PMC_BIN_127","lat":18.534415402416123,"lng":73.82488707394408,"fill":40,"status":0},{"id":"PMC_BIN_128","lat":18.516235074657263,"lng":73.76378430787345,"fill":91,"status":1},{"id":"PMC_BIN_129","lat":18.500597979666583,"lng":73.76546421309776,"fill":11,"status":0},{"id":"PMC_BIN_130","lat":18.466997430817518,"lng":73.77084939321037,"fill":87,"status":1},{"id":"PMC_BIN_131","lat":18.459092500447053,"lng":73.91808792639608,"fill":86,"status":1},{"id":"PMC_BIN_132","lat":18.612952054470146,"lng":73.93213723965114,"fill":21,"status":0},{"id":"PMC_BIN_133","lat":18.59401433449625,"lng":73.77456215636914,"fill":48,"status":0},{"id":"PMC_BIN_134","lat":18.510333882378664,"lng":73.79718120691902,"fill":75,"status":0},{"id":"PMC_BIN_135","lat":18.612656150471498,"lng":73.78310410207345,"fill":22,"status":0},{"id":"PMC_BIN_136","lat":18.565050883752132,"lng":73.78726417589883,"fill":55,"status":0},{"id":"PMC_BIN_137","lat":18.53202856143925,"lng":73.9174981578005,"fill":36,"status":0},{"id":"PMC_BIN_138","lat":18.533814361821207,"lng":73.81642928253099,"fill":26,"status":0},{"id":"PMC_BIN_139","lat":18.464158349903194,"lng":73.81228885280913,"fill":69,"status":0},{"id":"PMC_BIN_140","lat":18.465589705033942,"lng":73.79547912417543,"fill":73,"status":0},{"id":"PMC_BIN_141","lat":18.55241495740319,"lng":73.87157887875885,"fill":97,"status":1},{"id":"PMC_BIN_142","lat":18.544129518898785,"lng":73.82586113967712,"fill":44,"status":0},{"id":"PMC_BIN_143","lat":18.48616374215412,"lng":73.89884993036866,"fill":79,"status":0},{"id":"PMC_BIN_144","lat":18.61085307228989,"lng":73.79111596167513,"fill":92,"status":1},{"id":"PMC_BIN_145","lat":18.582820328580105,"lng":73.9075579777429,"fill":39,"status":0},{"id":"PMC_BIN_146","lat":18.469288982342967,"lng":73.87074430634603,"fill":80,"status":1},{"id":"PMC_BIN_147","lat":18.60825794796684,"lng":73.77285346001113,"fill":83,"status":1},{"id":"PMC_BIN_148","lat":18.61562219545085,"lng":73.83290091684073,"fill":72,"status":0},{"id":"PMC_BIN_149","lat":18.619308311145158,"lng":73.92270362812259,"fill":37,"status":0},{"id":"PMC_BIN_150","lat":18.45949809629515,"lng":73.9345920463597,"fill":69,"status":0},{"id":"PMC_BIN_151","lat":18.575296044654472,"lng":73.84314002446376,"fill":88,"status":1},{"id":"PMC_BIN_152","lat":18.542805680928048,"lng":73.84616739561781,"fill":46,"status":0},{"id":"PMC_BIN_153","lat":18.56999135225938,"lng":73.93369094498786,"fill":31,"status":0},{"id":"PMC_BIN_154","lat":18.614670830475603,"lng":73.86741364482731,"fill":77,"status":0},{"id":"PMC_BIN_155","lat":18.566965101729757,"lng":73.75656933404869,"fill":29,"status":0},{"id":"PMC_BIN_156","lat":18.592283858620355,"lng":73.93254989257584,"fill":77,"status":0},{"id":"PMC_BIN_157","lat":18.597367679902845,"lng":73.79964528855143,"fill":73,"status":0},{"id":"PMC_BIN_158","lat":18.59254172983988,"lng":73.86552639081832,"fill":26,"status":0},{"id":"PMC_BIN_159","lat":18.52243555075798,"lng":73.7831026634856,"fill":21,"status":0},{"id":"PMC_BIN_160","lat":18.487837990987074,"lng":73.75677583204931,"fill":31,"status":0},{"id":"PMC_BIN_161","lat":18.517430772332222,"lng":73.81229463422655,"fill":26,"status":0},{"id":"PMC_BIN_162","lat":18.601622474492054,"lng":73.90609914150922,"fill":19,"status":0},{"id":"PMC_BIN_163","lat":18.474922819687645,"lng":73.80551743452588,"fill":74,"status":0},{"id":"PMC_BIN_164","lat":18.537265448677708,"lng":73.79401944281622,"fill":31,"status":0},{"id":"PMC_BIN_165","lat":18.48964877231217,"lng":73.79253615686825,"fill":99,"status":1},{"id":"PMC_BIN_166","lat":18.548821920928553,"lng":73.85303473648136,"fill":91,"status":1},{"id":"PMC_BIN_167","lat":18.596733548738133,"lng":73.94510826313656,"fill":59,"status":0},{"id":"PMC_BIN_168","lat":18.59966119466853,"lng":73.8417977976034,"fill":23,"status":0},{"id":"PMC_BIN_169","lat":18.490236482925955,"lng":73.86146107377802,"fill":73,"status":0},{"id":"PMC_BIN_170","lat":18.604307930079255,"lng":73.92212640357815,"fill":56,"status":0},{"id":"PMC_BIN_171","lat":18.55062108559962,"lng":73.85701394378674,"fill":38,"status":0},{"id":"PMC_BIN_172","lat":18.509537101939053,"lng":73.78689257428377,"fill":85,"status":1},{"id":"PMC_BIN_173","lat":18.570390803249143,"lng":73.8099191823533,"fill":45,"status":0},{"id":"PMC_BIN_174","lat":18.5318833879539,"lng":73.81198738525373,"fill":61,"status":0},{"id":"PMC_BIN_175","lat":18.514257890320785,"lng":73.82946362309153,"fill":85,"status":1},{"id":"PMC_BIN_176","lat":18.569864341930433,"lng":73.83535778106734,"fill":16,"status":0},{"id":"PMC_BIN_177","lat":18.492283106253147,"lng":73.90995640441486,"fill":38,"status":0},{"id":"PMC_BIN_178","lat":18.506142929933247,"lng":73.81987739980987,"fill":20,"status":0},{"id":"PMC_BIN_179","lat":18.523856813563008,"lng":73.84364636568827,"fill":42,"status":0},{"id":"PMC_BIN_180","lat":18.493125969558434,"lng":73.87499519741021,"fill":15,"status":0},{"id":"PMC_BIN_181","lat":18.518884354752842,"lng":73.82554518948804,"fill":88,"status":1},{"id":"PMC_BIN_182","lat":18.547150414284854,"lng":73.91731296265847,"fill":41,"status":0},{"id":"PMC_BIN_183","lat":18.575965556354813,"lng":73.86749072084682,"fill":60,"status":0},{"id":"PMC_BIN_184","lat":18.580423125028457,"lng":73.8088089358442,"fill":84,"status":1},{"id":"PMC_BIN_185","lat":18.58987435981904,"lng":73.89281183995797,"fill":67,"status":0},{"id":"PMC_BIN_186","lat":18.576515981680362,"lng":73.85552954602896,"fill":96,"status":1},{"id":"PMC_BIN_187","lat":18.565776702606474,"lng":73.85689117825144,"fill":35,"status":0},{"id":"PMC_BIN_188","lat":18.490376100119718,"lng":73.84621758967752,"fill":55,"status":0},{"id":"PMC_BIN_189","lat":18.518037891788243,"lng":73.84940238976425,"fill":38,"status":0},{"id":"PMC_BIN_190","lat":18.53121153144964,"lng":73.90307125621325,"fill":13,"status":0},{"id":"PMC_BIN_191","lat":18.46409152468787,"lng":73.77059629586627,"fill":90,"status":1},{"id":"PMC_BIN_192","lat":18.539822920620527,"lng":73.81687256226209,"fill":22,"status":0},{"id":"PMC_BIN_193","lat":18.524177091373115,"lng":73.76510067276078,"fill":48,"status":0},{"id":"PMC_BIN_194","lat":18.586358572334547,"lng":73.90064924414949,"fill":24,"status":0},{"id":"PMC_BIN_195","lat":18.616243113688228,"lng":73.80446037094406,"fill":38,"status":0},{"id":"PMC_BIN_196","lat":18.54452085656924,"lng":73.92948608196377,"fill":38,"status":0},{"id":"PMC_BIN_197","lat":18.50485668600719,"lng":73.85531569333186,"fill":84,"status":1},{"id":"PMC_BIN_198","lat":18.457378133160688,"lng":73.91014995429722,"fill":41,"status":0},{"id":"PMC_BIN_199","lat":18.607189366138012,"lng":73.9457862871232,"fill":11,"status":0},{"id":"PMC_BIN_200","lat":18.60624967159737,"lng":73.91795777189131,"fill":56,"status":0},{"id":"PMC_BIN_201","lat":18.493008328558172,"lng":73.92339875200231,"fill":87,"status":1},{"id":"PMC_BIN_202","lat":18.56821989092813,"lng":73.83159689907298,"fill":93,"status":1},{"id":"PMC_BIN_203","lat":18.46282387300526,"lng":73.86034451905186,"fill":31,"status":0},{"id":"PMC_BIN_204","lat":18.478256623424574,"lng":73.80077771280867,"fill":84,"status":1},{"id":"PMC_BIN_205","lat":18.486857548119705,"lng":73.78922261993868,"fill":36,"status":0},{"id":"PMC_BIN_206","lat":18.500063970962703,"lng":73.8511015758212,"fill":76,"status":0},{"id":"PMC_BIN_207","lat":18.619291333754994,"lng":73.86900979594009,"fill":90,"status":1},{"id":"PMC_BIN_208","lat":18.56847725949685,"lng":73.81785424917923,"fill":65,"status":0},{"id":"PMC_BIN_209","lat":18.515314311334468,"lng":73.8638887035527,"fill":30,"status":0},{"id":"PMC_BIN_210","lat":18.575307119993315,"lng":73.9274920965027,"fill":56,"status":0},{"id":"PMC_BIN_211","lat":18.60559323808375,"lng":73.86134431695668,"fill":89,"status":1},{"id":"PMC_BIN_212","lat":18.612979409259335,"lng":73.8941626192621,"fill":68,"status":0},{"id":"PMC_BIN_213","lat":18.45983686261881,"lng":73.91106299347159,"fill":93,"status":1},{"id":"PMC_BIN_214","lat":18.517068705763382,"lng":73.94774575639109,"fill":15,"status":0},{"id":"PMC_BIN_215","lat":18.4681485312091,"lng":73.8706394804354,"fill":28,"status":0},{"id":"PMC_BIN_216","lat":18.507062211015484,"lng":73.91137002979252,"fill":66,"status":0},{"id":"PMC_BIN_217","lat":18.478845583662245,"lng":73.94252986371097,"fill":78,"status":0},{"id":"PMC_BIN_218","lat":18.559964221483682,"lng":73.93888194511545,"fill":12,"status":0},{"id":"PMC_BIN_219","lat":18.51600562527828,"lng":73.77821636975554,"fill":10,"status":0},{"id":"PMC_BIN_220","lat":18.48899710676984,"lng":73.8312784616547,"fill":67,"status":0},{"id":"PMC_BIN_221","lat":18.49520944724392,"lng":73.81479801222136,"fill":47,"status":0},{"id":"PMC_BIN_222","lat":18.511258666184897,"lng":73.76738500299007,"fill":24,"status":0},{"id":"PMC_BIN_223","lat":18.494191476685224,"lng":73.87664815498219,"fill":43,"status":0},{"id":"PMC_BIN_224","lat":18.5270509439609,"lng":73.89718092263921,"fill":70,"status":0},{"id":"PMC_BIN_225","lat":18.45549371168864,"lng":73.91962561909338,"fill":44,"status":0},{"id":"PMC_BIN_226","lat":18.49755979621872,"lng":73.77455537793254,"fill":73,"status":0},{"id":"PMC_BIN_227","lat":18.51990514254827,"lng":73.92528881517507,"fill":34,"status":0},{"id":"PMC_BIN_228","lat":18.552472919943963,"lng":73.87858511272285,"fill":33,"status":0},{"id":"PMC_BIN_229","lat":18.496062799227573,"lng":73.89078922702771,"fill":21,"status":0},{"id":"PMC_BIN_230","lat":18.472641471288036,"lng":73.93212480070807,"fill":27,"status":0},{"id":"PMC_BIN_231","lat":18.462954064531857,"lng":73.87495225420865,"fill":24,"status":0},{"id":"PMC_BIN_232","lat":18.609890410613016,"lng":73.81717317142997,"fill":89,"status":1},{"id":"PMC_BIN_233","lat":18.52082863981554,"lng":73.91502146628453,"fill":36,"status":0},{"id":"PMC_BIN_234","lat":18.54879764560074,"lng":73.82261184243902,"fill":81,"status":1},{"id":"PMC_BIN_235","lat":18.606260013812047,"lng":73.75684562216411,"fill":69,"status":0},{"id":"PMC_BIN_236","lat":18.464067231406002,"lng":73.91613090131305,"fill":55,"status":0},{"id":"PMC_BIN_237","lat":18.599032452607386,"lng":73.81903842897626,"fill":98,"status":1},{"id":"PMC_BIN_238","lat":18.543769938332492,"lng":73.90476690464027,"fill":26,"status":0},{"id":"PMC_BIN_239","lat":18.47802182439329,"lng":73.82255157893319,"fill":62,"status":0},{"id":"PMC_BIN_240","lat":18.519913369819513,"lng":73.92221360399495,"fill":17,"status":0},{"id":"PMC_BIN_241","lat":18.58219238823499,"lng":73.79390210501619,"fill":88,"status":1},{"id":"PMC_BIN_242","lat":18.53166291391728,"lng":73.94490945303977,"fill":36,"status":0},{"id":"PMC_BIN_243","lat":18.617498628613138,"lng":73.90595175495761,"fill":55,"status":0},{"id":"PMC_BIN_244","lat":18.51404562488945,"lng":73.77284758518408,"fill":59,"status":0},{"id":"PMC_BIN_245","lat":18.577428310995934,"lng":73.86315532399331,"fill":80,"status":1},{"id":"PMC_BIN_246","lat":18.516808206326406,"lng":73.94707346244834,"fill":12,"status":0},{"id":"PMC_BIN_247","lat":18.590957917520107,"lng":73.84421309053876,"fill":73,"status":0},{"id":"PMC_BIN_248","lat":18.546743849758176,"lng":73.78642142776432,"fill":53,"status":0},{"id":"PMC_BIN_249","lat":18.460797011030298,"lng":73.84695567343007,"fill":62,"status":0},{"id":"PMC_BIN_250","lat":18.456259717498117,"lng":73.85249153117638,"fill":33,"status":0},{"id":"PMC_BIN_251","lat":18.47275486019611,"lng":73.89833738884573,"fill":69,"status":0},{"id":"PMC_BIN_252","lat":18.45232423402059,"lng":73.88976917063218,"fill":12,"status":0},{"id":"PMC_BIN_253","lat":18.46281104025992,"lng":73.8305100087194,"fill":29,"status":0},{"id":"PMC_BIN_254","lat":18.567591447518716,"lng":73.79360462149882,"fill":55,"status":0},{"id":"PMC_BIN_255","lat":18.54083886675501,"lng":73.87901083355386,"fill":24,"status":0},{"id":"PMC_BIN_256","lat":18.577484827409897,"lng":73.83434078691066,"fill":34,"status":0},{"id":"PMC_BIN_257","lat":18.605238177883802,"lng":73.77645524222507,"fill":87,"status":1},{"id":"PMC_BIN_258","lat":18.54947542049533,"lng":73.93011446024728,"fill":80,"status":1},{"id":"PMC_BIN_259","lat":18.573440543492215,"lng":73.88824437152194,"fill":26,"status":0},{"id":"PMC_BIN_260","lat":18.578703804347217,"lng":73.8866367712891,"fill":93,"status":1},{"id":"PMC_BIN_261","lat":18.514234593376884,"lng":73.91451677518234,"fill":18,"status":0},{"id":"PMC_BIN_262","lat":18.490984421496037,"lng":73.85593233573101,"fill":47,"status":0},{"id":"PMC_BIN_263","lat":18.48485770584611,"lng":73.91301088568049,"fill":57,"status":0},{"id":"PMC_BIN_264","lat":18.492745214717004,"lng":73.8496181507022,"fill":69,"status":0},{"id":"PMC_BIN_265","lat":18.496704405494405,"lng":73.76343507998314,"fill":72,"status":0},{"id":"PMC_BIN_266","lat":18.48522870033137,"lng":73.83104961760554,"fill":95,"status":1},{"id":"PMC_BIN_267","lat":18.599297513471463,"lng":73.84949297879598,"fill":11,"status":0},{"id":"PMC_BIN_268","lat":18.578689852469278,"lng":73.89404051632646,"fill":97,"status":1},{"id":"PMC_BIN_269","lat":18.457972399524508,"lng":73.77131574602573,"fill":81,"status":1},{"id":"PMC_BIN_270","lat":18.495674321944303,"lng":73.7780037077321,"fill":20,"status":0},{"id":"PMC_BIN_271","lat":18.45377140614515,"lng":73.80273676052693,"fill":73,"status":0},{"id":"PMC_BIN_272","lat":18.5346880817298,"lng":73.80329967867418,"fill":86,"status":1},{"id":"PMC_BIN_273","lat":18.53095581845413,"lng":73.89643691569181,"fill":90,"status":1},{"id":"PMC_BIN_274","lat":18.591333153310625,"lng":73.80014613211232,"fill":81,"status":1},{"id":"PMC_BIN_275","lat":18.50232213076108,"lng":73.87661961267149,"fill":30,"status":0},{"id":"PMC_BIN_276","lat":18.588785574986222,"lng":73.84885477002766,"fill":27,"status":0},{"id":"PMC_BIN_277","lat":18.61455554012477,"lng":73.86465887563588,"fill":73,"status":0},{"id":"PMC_BIN_278","lat":18.46502939797216,"lng":73.91762139263567,"fill":91,"status":1},{"id":"PMC_BIN_279","lat":18.58460903270984,"lng":73.83087630030981,"fill":47,"status":0},{"id":"PMC_BIN_280","lat":18.550292502513397,"lng":73.90418227541285,"fill":41,"status":0},{"id":"PMC_BIN_281","lat":18.53160781439314,"lng":73.83440721191013,"fill":20,"status":0},{"id":"PMC_BIN_282","lat":18.521491082373064,"lng":73.82077427531225,"fill":54,"status":0},{"id":"PMC_BIN_283","lat":18.583393604870533,"lng":73.94172543546264,"fill":98,"status":1},{"id":"PMC_BIN_284","lat":18.55869143068562,"lng":73.7868741841358,"fill":42,"status":0},{"id":"PMC_BIN_285","lat":18.586857593478292,"lng":73.76806739211553,"fill":50,"status":0},{"id":"PMC_BIN_286","lat":18.603535679975028,"lng":73.9041971851071,"fill":17,"status":0},{"id":"PMC_BIN_287","lat":18.55493483105654,"lng":73.76364994107082,"fill":20,"status":0},{"id":"PMC_BIN_288","lat":18.616678663265706,"lng":73.91741579814061,"fill":95,"status":1},{"id":"PMC_BIN_289","lat":18.55337493442212,"lng":73.83743867927144,"fill":60,"status":0},{"id":"PMC_BIN_290","lat":18.55822953467579,"lng":73.93310273545839,"fill":97,"status":1},{"id":"PMC_BIN_291","lat":18.54431865345218,"lng":73.89430657222438,"fill":50,"status":0},{"id":"PMC_BIN_292","lat":18.465470355478725,"lng":73.87208093340159,"fill":26,"status":0},{"id":"PMC_BIN_293","lat":18.573487495550538,"lng":73.93986135941155,"fill":85,"status":1},{"id":"PMC_BIN_294","lat":18.54306587217285,"lng":73.82932987461041,"fill":55,"status":0},{"id":"PMC_BIN_295","lat":18.526654776060738,"lng":73.94081738730793,"fill":41,"status":0},{"id":"PMC_BIN_296","lat":18.604780117328556,"lng":73.77700025548424,"fill":88,"status":1},{"id":"PMC_BIN_297","lat":18.500653106762133,"lng":73.84675098838649,"fill":89,"status":1},{"id":"PMC_BIN_298","lat":18.53901238692255,"lng":73.80398224447843,"fill":63,"status":0},{"id":"PMC_BIN_299","lat":18.56859911815389,"lng":73.85796855578164,"fill":95,"status":1},{"id":"PMC_BIN_300","lat":18.58540020186456,"lng":73.78240277557832,"fill":29,"status":0},{"id":"PMC_BIN_301","lat":18.52808895735085,"lng":73.91830593206201,"fill":42,"status":0},{"id":"PMC_BIN_302","lat":18.59315554055318,"lng":73.91928156986292,"fill":83,"status":1},{"id":"PMC_BIN_303","lat":18.58071601602362,"lng":73.9410472625447,"fill":49,"status":0},{"id":"PMC_BIN_304","lat":18.461260116234815,"lng":73.78093442817665,"fill":41,"status":0},{"id":"PMC_BIN_305","lat":18.457796415288787,"lng":73.874666510181,"fill":11,"status":0},{"id":"PMC_BIN_306","lat":18.555536966351756,"lng":73.84484746174007,"fill":42,"status":0},{"id":"PMC_BIN_307","lat":18.50906027939832,"lng":73.81887674640885,"fill":86,"status":1},{"id":"PMC_BIN_308","lat":18.485552234483347,"lng":73.82030803222685,"fill":39,"status":0},{"id":"PMC_BIN_309","lat":18.548540488860194,"lng":73.83255871012135,"fill":42,"status":0},{"id":"PMC_BIN_310","lat":18.508065745777614,"lng":73.89098510993779,"fill":86,"status":1},{"id":"PMC_BIN_311","lat":18.541334780841392,"lng":73.86965721165363,"fill":35,"status":0},{"id":"PMC_BIN_312","lat":18.528220257027208,"lng":73.84193630255223,"fill":31,"status":0},{"id":"PMC_BIN_313","lat":18.549410238011358,"lng":73.76518668207393,"fill":75,"status":0},{"id":"PMC_BIN_314","lat":18.51805108311475,"lng":73.76555306881579,"fill":47,"status":0},{"id":"PMC_BIN_315","lat":18.568603487528478,"lng":73.75046787812515,"fill":99,"status":1},{"id":"PMC_BIN_316","lat":18.48061143629938,"lng":73.94353987764141,"fill":55,"status":0},{"id":"PMC_BIN_317","lat":18.568405249258603,"lng":73.75105076371167,"fill":24,"status":0},{"id":"PMC_BIN_318","lat":18.51998240644078,"lng":73.77061874920275,"fill":53,"status":0},{"id":"PMC_BIN_319","lat":18.598633992825253,"lng":73.81291931136188,"fill":58,"status":0},{"id":"PMC_BIN_320","lat":18.537590129326915,"lng":73.91148605036335,"fill":84,"status":1},{"id":"PMC_BIN_321","lat":18.61542875937592,"lng":73.94241975715282,"fill":70,"status":0},{"id":"PMC_BIN_322","lat":18.552329017241963,"lng":73.90800271175837,"fill":76,"status":0},{"id":"PMC_BIN_323","lat":18.488054341204073,"lng":73.88811204648913,"fill":15,"status":0},{"id":"PMC_BIN_324","lat":18.589704408263557,"lng":73.85426013348271,"fill":18,"status":0},{"id":"PMC_BIN_325","lat":18.508664046729805,"lng":73.76734104237244,"fill":15,"status":0},{"id":"PMC_BIN_326","lat":18.509095266462054,"lng":73.94163415860079,"fill":82,"status":1},{"id":"PMC_BIN_327","lat":18.45540679585248,"lng":73.90167848278914,"fill":41,"status":0},{"id":"PMC_BIN_328","lat":18.54328160256526,"lng":73.87778987706686,"fill":50,"status":0},{"id":"PMC_BIN_329","lat":18.54085199563453,"lng":73.90180716910777,"fill":85,"status":1},{"id":"PMC_BIN_330","lat":18.51051855232624,"lng":73.89482066585462,"fill":17,"status":0},{"id":"PMC_BIN_331","lat":18.60201693469231,"lng":73.8774463159579,"fill":81,"status":1},{"id":"PMC_BIN_332","lat":18.47188722771094,"lng":73.946115360036,"fill":59,"status":0},{"id":"PMC_BIN_333","lat":18.506116917262727,"lng":73.93067276252721,"fill":71,"status":0},{"id":"PMC_BIN_334","lat":18.504669069995604,"lng":73.87933298382343,"fill":93,"status":1},{"id":"PMC_BIN_335","lat":18.465689399658885,"lng":73.88863504229138,"fill":71,"status":0},{"id":"PMC_BIN_336","lat":18.53179471698957,"lng":73.76031916133174,"fill":16,"status":0},{"id":"PMC_BIN_337","lat":18.566923401906333,"lng":73.88398349291,"fill":84,"status":1},{"id":"PMC_BIN_338","lat":18.536981692303033,"lng":73.75883308754202,"fill":93,"status":1},{"id":"PMC_BIN_339","lat":18.476686206061753,"lng":73.86765275139399,"fill":89,"status":1},{"id":"PMC_BIN_340","lat":18.514138614091152,"lng":73.94987069991316,"fill":13,"status":0},{"id":"PMC_BIN_341","lat":18.45044115414522,"lng":73.86116131628744,"fill":15,"status":0},{"id":"PMC_BIN_342","lat":18.59761118819605,"lng":73.84464202361627,"fill":67,"status":0},{"id":"PMC_BIN_343","lat":18.464367891305717,"lng":73.81257097130111,"fill":31,"status":0},{"id":"PMC_BIN_344","lat":18.551537273983424,"lng":73.77410451575729,"fill":35,"status":0},{"id":"PMC_BIN_345","lat":18.61766368929736,"lng":73.89620473429166,"fill":12,"status":0},{"id":"PMC_BIN_346","lat":18.541220409817846,"lng":73.78851980555713,"fill":50,"status":0},{"id":"PMC_BIN_347","lat":18.607087099048265,"lng":73.77305640424946,"fill":69,"status":0},{"id":"PMC_BIN_348","lat":18.49013981062996,"lng":73.83435253194611,"fill":23,"status":0},{"id":"PMC_BIN_349","lat":18.57919241951939,"lng":73.90906836759183,"fill":84,"status":1},{"id":"PMC_BIN_350","lat":18.5403151781755,"lng":73.89901290962405,"fill":91,"status":1},{"id":"PMC_BIN_351","lat":18.57248773043655,"lng":73.7609765229293,"fill":21,"status":0},{"id":"PMC_BIN_352","lat":18.460598031626912,"lng":73.84102873700724,"fill":96,"status":1},{"id":"PMC_BIN_353","lat":18.475115645624058,"lng":73.85448691521424,"fill":21,"status":0},{"id":"PMC_BIN_354","lat":18.47262987785987,"lng":73.87890933012517,"fill":22,"status":0},{"id":"PMC_BIN_355","lat":18.566818135918567,"lng":73.88003347008865,"fill":34,"status":0},{"id":"PMC_BIN_356","lat":18.593554914347717,"lng":73.82293944989146,"fill":54,"status":0},{"id":"PMC_BIN_357","lat":18.57743475944146,"lng":73.8621354388007,"fill":28,"status":0},{"id":"PMC_BIN_358","lat":18.45518026596471,"lng":73.84621237676882,"fill":64,"status":0},{"id":"PMC_BIN_359","lat":18.597426546782703,"lng":73.92699967130466,"fill":54,"status":0},{"id":"PMC_BIN_360","lat":18.51020493403483,"lng":73.85605302652698,"fill":17,"status":0},{"id":"PMC_BIN_361","lat":18.517517851525692,"lng":73.83820643234964,"fill":62,"status":0},{"id":"PMC_BIN_362","lat":18.46782775831052,"lng":73.83089708993637,"fill":64,"status":0},{"id":"PMC_BIN_363","lat":18.57535888503595,"lng":73.8644855518867,"fill":41,"status":0},{"id":"PMC_BIN_364","lat":18.48098825934091,"lng":73.91079539588019,"fill":60,"status":0},{"id":"PMC_BIN_365","lat":18.545874065643204,"lng":73.85768029807616,"fill":53,"status":0},{"id":"PMC_BIN_366","lat":18.59292069759925,"lng":73.88233103501611,"fill":91,"status":1},{"id":"PMC_BIN_367","lat":18.46516473588105,"lng":73.8975711533813,"fill":79,"status":0},{"id":"PMC_BIN_368","lat":18.54100704588264,"lng":73.85403362197574,"fill":27,"status":0},{"id":"PMC_BIN_369","lat":18.489646789963466,"lng":73.83536341133097,"fill":92,"status":1},{"id":"PMC_BIN_370","lat":18.508297566927304,"lng":73.9253330755725,"fill":31,"status":0},{"id":"PMC_BIN_371","lat":18.530574890043194,"lng":73.83350121680557,"fill":46,"status":0},{"id":"PMC_BIN_372","lat":18.51036773155748,"lng":73.84238857011512,"fill":65,"status":0},{"id":"PMC_BIN_373","lat":18.56029988284957,"lng":73.94806826266836,"fill":68,"status":0},{"id":"PMC_BIN_374","lat":18.53152895729822,"lng":73.75004750471518,"fill":12,"status":0},{"id":"PMC_BIN_375","lat":18.54931391240141,"lng":73.78709458191534,"fill":37,"status":0},{"id":"PMC_BIN_376","lat":18.575259820817134,"lng":73.82679277798394,"fill":83,"status":1},{"id":"PMC_BIN_377","lat":18.544816185211573,"lng":73.93651798188505,"fill":44,"status":0},{"id":"PMC_BIN_378","lat":18.54971102389233,"lng":73.76400594114949,"fill":70,"status":0},{"id":"PMC_BIN_379","lat":18.54595795222885,"lng":73.7518970867257,"fill":63,"status":0},{"id":"PMC_BIN_380","lat":18.51439134641172,"lng":73.76053676719545,"fill":72,"status":0},{"id":"PMC_BIN_381","lat":18.507365961758225,"lng":73.76770868212273,"fill":88,"status":1},{"id":"PMC_BIN_382","lat":18.602940057514655,"lng":73.75751935464125,"fill":16,"status":0},{"id":"PMC_BIN_383","lat":18.55328438778991,"lng":73.8459562653713,"fill":85,"status":1},{"id":"PMC_BIN_384","lat":18.49154003642899,"lng":73.86615144144547,"fill":58,"status":0},{"id":"PMC_BIN_385","lat":18.53470210863432,"lng":73.8043373942138,"fill":94,"status":1},{"id":"PMC_BIN_386","lat":18.506159241817755,"lng":73.82965747679513,"fill":40,"status":0},{"id":"PMC_BIN_387","lat":18.60872761003918,"lng":73.76833986702229,"fill":67,"status":0},{"id":"PMC_BIN_388","lat":18.451280841732792,"lng":73.81727409276569,"fill":70,"status":0},{"id":"PMC_BIN_389","lat":18.48830657561113,"lng":73.8545038383269,"fill":33,"status":0},{"id":"PMC_BIN_390","lat":18.51211065934459,"lng":73.89645436143694,"fill":29,"status":0},{"id":"PMC_BIN_391","lat":18.532927666137486,"lng":73.7506692724086,"fill":46,"status":0},{"id":"PMC_BIN_392","lat":18.594638978032144,"lng":73.84346215330753,"fill":13,"status":0},{"id":"PMC_BIN_393","lat":18.464940896171825,"lng":73.80940057529098,"fill":29,"status":0},{"id":"PMC_BIN_394","lat":18.586997030745994,"lng":73.92056436433839,"fill":69,"status":0},{"id":"PMC_BIN_395","lat":18.459461093190686,"lng":73.89311066304685,"fill":33,"status":0},{"id":"PMC_BIN_396","lat":18.593193386000692,"lng":73.86782170689418,"fill":59,"status":0},{"id":"PMC_BIN_397","lat":18.458778031238666,"lng":73.80545312913935,"fill":58,"status":0},{"id":"PMC_BIN_398","lat":18.45310122184282,"lng":73.9320678204115,"fill":60,"status":0},{"id":"PMC_BIN_399","lat":18.568483448602294,"lng":73.75902013544406,"fill":45,"status":0},{"id":"PMC_BIN_400","lat":18.61953344091063,"lng":73.77189351973583,"fill":75,"status":0}];
+
+// Depot location (central Pune)
+const DEPOT = { lat: 18.5204, lng: 73.8567, id: 'DEPOT' };
+
+// Truck colors
+const TRUCK_COLORS = ['#388bfd','#2ea043','#d29922'];
+
+// ============================================================
+// MARKER HELPERS
+// ============================================================
+function getBinColor(fill) {
+  if (fill >= 80) return '#f85149';
+  if (fill >= 60) return '#d29922';
+  if (fill >= 40) return '#e3b341';
+  return '#2ea043';
+}
+
+function getFillClass(fill) {
+  if (fill >= 80) return 'critical';
+  if (fill >= 60) return 'high';
+  if (fill >= 40) return 'medium';
+  return 'low';
+}
+
+function makeCircleMarker(bin) {
+  const color = getBinColor(bin.fill);
+  const r = bin.fill >= 80 ? 8 : bin.fill >= 60 ? 7 : 6;
+  const m = L.circleMarker([bin.lat, bin.lng], {
+    radius: r, fillColor: color, color: '#0d1117',
+    weight: 1.5, opacity: 1, fillOpacity: 0.9
+  });
+  m.bindPopup(makePopup(bin));
+  m.on('click', () => {
+    map.setView([bin.lat, bin.lng], 15, { animate: true });
+  });
+  return m;
+}
+
+function makePopup(bin) {
+  const color = getBinColor(bin.fill);
+  const statusLabel = bin.status === 1 ? '⚠ OVERFLOW' : '✓ Normal';
+  const statusColor = bin.status === 1 ? '#f85149' : '#2ea043';
+  return `<div style="min-width:160px">
+    <div class="popup-title">${bin.id}</div>
+    <div class="popup-row">Fill Level <span style="color:${color}">${bin.fill}%</span></div>
+    <div class="popup-row">Status <span style="color:${statusColor}">${statusLabel}</span></div>
+    <div class="popup-row">Lat <span>${bin.lat.toFixed(5)}</span></div>
+    <div class="popup-row">Lng <span>${bin.lng.toFixed(5)}</span></div>
+    <div class="popup-fill-bar"><div class="popup-fill-inner" style="width:${bin.fill}%;background:${color}"></div></div>
+  </div>`;
+}
+
+// ============================================================
+// INIT — called after Leaflet loads
+// ============================================================
+function initApp() {
+  map = L.map('map', { zoomControl: true });
+  map.setView([18.535, 73.855], 12);
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap © CARTO', maxZoom: 19
+  }).addTo(map);
+
+  // Depot marker
+  const depotIcon = L.divIcon({
+    className: '',
+    html: `<div style="width:24px;height:24px;background:#388bfd;border:3px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 0 8px #388bfd66">🏭</div>`,
+    iconAnchor: [12, 12]
+  });
+  L.marker([DEPOT.lat, DEPOT.lng], { icon: depotIcon })
+    .bindPopup('<div class="popup-title">🏭 Waste Collection Depot</div><div style="font-size:11px;color:#8b949e">Central Pune Hub<br>All trucks start & end here</div>')
+    .addTo(map);
+
+  renderMarkers(BINS_DATA);
+  updateFillBar();
+  buildTicker();
+  setTimeout(() => showToast('✓ 400 bins loaded from Pune dataset'), 500);
+}
+
+// ============================================================
+// RENDER ALL MARKERS
+// ============================================================
+function renderMarkers(bins) {
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+  bins.forEach(bin => {
+    const m = makeCircleMarker(bin);
+    m.addTo(map);
+    markers.push(m);
+  });
+}
+
+// ============================================================
+// DISTANCE CALC (Haversine km)
+// ============================================================
+function dist(a, b) {
+  const R = 6371, dLat = (b.lat - a.lat) * Math.PI / 180, dLng = (b.lng - a.lng) * Math.PI / 180;
+  const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+}
+
+// ============================================================
+// ROUTING ALGORITHMS
+// ============================================================
+function nearestNeighbor(bins, maxStops) {
+  let remaining = [...bins];
+  let route = [];
+  let current = DEPOT;
+  while (remaining.length > 0 && route.length < maxStops) {
+    let best = null, bestDist = Infinity, bestIdx = -1;
+    remaining.forEach((b, i) => {
+      const d = dist(current, b);
+      if (d < bestDist) { bestDist = d; best = b; bestIdx = i; }
+    });
+    if (best) { route.push(best); current = best; remaining.splice(bestIdx, 1); }
+    else break;
+  }
+  return route;
+}
+
+function priorityProximity(bins, maxStops) {
+  // Score = fill_weight * 0.6 + proximity_weight * 0.4
+  // Sort by fill desc first (critical first), then cluster
+  let remaining = [...bins].sort((a, b) => b.fill - a.fill);
+  let route = [];
+  let current = DEPOT;
+  while (remaining.length > 0 && route.length < maxStops) {
+    let bestScore = -Infinity, bestIdx = -1;
+    remaining.forEach((b, i) => {
+      const d = dist(current, b);
+      const maxD = 15; // km
+      const proxScore = Math.max(0, 1 - d / maxD);
+      const fillScore = b.fill / 100;
+      const score = fillScore * 0.65 + proxScore * 0.35;
+      if (score > bestScore) { bestScore = score; bestIdx = i; }
+    });
+    if (bestIdx >= 0) { route.push(remaining[bestIdx]); current = remaining[bestIdx]; remaining.splice(bestIdx, 1); }
+    else break;
+  }
+  return route;
+}
+
+function clusterBased(bins, numTrucks, maxStops) {
+  // Simple k-means-like split by geographic sector
+  const minLat = Math.min(...bins.map(b => b.lat));
+  const maxLat = Math.max(...bins.map(b => b.lat));
+  const minLng = Math.min(...bins.map(b => b.lng));
+  const maxLng = Math.max(...bins.map(b => b.lng));
+  
+  // Create sectors
+  const sectors = [];
+  if (numTrucks === 1) {
+    sectors.push(bins);
+  } else if (numTrucks === 2) {
+    const midLat = (minLat + maxLat) / 2;
+    sectors.push(bins.filter(b => b.lat >= midLat));
+    sectors.push(bins.filter(b => b.lat < midLat));
+  } else {
+    const midLat = (minLat + maxLat) / 2;
+    const midLng = (minLng + maxLng) / 2;
+    sectors.push(bins.filter(b => b.lat >= midLat && b.lng >= midLng));
+    sectors.push(bins.filter(b => b.lat < midLat || (b.lat >= midLat && b.lng < midLng)));
+    sectors.push(bins.filter(b => b.lat < midLat && b.lng < midLng));
+  }
+  
+  return sectors.map(s => priorityProximity(s.sort((a,b)=>b.fill-a.fill), maxStops));
+}
+
+// ============================================================
+// COMPUTE ROUTES
+// ============================================================
+function computeRoutes() {
+  const thresh = parseInt(document.getElementById('thresh-slider').value);
+  const algo = document.getElementById('algo-select').value;
+  const maxStops = parseInt(document.getElementById('stops-slider').value);
+  const numTrucks = parseInt(document.getElementById('trucks-select').value);
+
+  // Filter bins above threshold
+  const eligible = BINS_DATA.filter(b => b.fill >= thresh);
+  
+  if (eligible.length === 0) {
+    showToast('No bins above threshold ' + thresh + '%');
+    return;
+  }
+
+  clearRoutes();
+
+  let routes = [];
+  if (algo === 'nearest') {
+    if (numTrucks === 1) {
+      routes = [nearestNeighbor(eligible, maxStops)];
+    } else {
+      const perTruck = Math.ceil(eligible.length / numTrucks);
+      let remaining = [...eligible];
+      for (let t = 0; t < numTrucks; t++) {
+        const chunk = remaining.splice(0, maxStops);
+        routes.push(nearestNeighbor(chunk, maxStops));
+      }
+    }
+  } else if (algo === 'priority') {
+    if (numTrucks === 1) {
+      routes = [priorityProximity(eligible, maxStops)];
+    } else {
+      routes = clusterBased(eligible, numTrucks, maxStops);
+    }
+  } else {
+    routes = clusterBased(eligible, numTrucks, maxStops);
+  }
+
+  // Draw routes
+  routes.forEach((route, i) => {
+    if (route.length === 0) return;
+    const color = TRUCK_COLORS[i % TRUCK_COLORS.length];
+    const coords = [[DEPOT.lat, DEPOT.lng], ...route.map(b => [b.lat, b.lng]), [DEPOT.lat, DEPOT.lng]];
+    const line = L.polyline(coords, { color, weight: 3, opacity: 0.85, dashArray: null });
+    line.addTo(map);
+    routeLayers.push(line);
+  });
+
+  // Fit map to show routes
+  if (routeLayers.length > 0) {
+    const allCoords = routeLayers.flatMap(l => l.getLatLngs());
+    if (allCoords.length > 0) map.fitBounds(L.latLngBounds(allCoords.map(c => [c.lat, c.lng])).pad(0.1));
+  }
+
+  // Show results in sidebar
+  renderRouteResults(routes, thresh);
+  document.getElementById('stat-coverage').textContent = routes.reduce((s, r) => s + r.length, 0);
+  showToast(`✓ ${routes.length} route(s) computed · ${routes.reduce((s,r)=>s+r.length,0)} stops`);
+}
+
+function routeDistance(route) {
+  let total = dist(DEPOT, route[0]);
+  for (let i = 0; i < route.length - 1; i++) total += dist(route[i], route[i+1]);
+  total += dist(route[route.length-1], DEPOT);
+  return total;
+}
+
+function renderRouteResults(routes, thresh) {
+  const el = document.getElementById('route-result');
+  const header = document.getElementById('route-result-header');
+  header.textContent = `Route Results (thresh ≥${thresh}%)`;
+
+  if (routes.every(r => r.length === 0)) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">🔍</div>No bins found above threshold</div>';
+    return;
+  }
+
+  let html = '';
+  routes.forEach((route, i) => {
+    if (route.length === 0) return;
+    const color = TRUCK_COLORS[i % TRUCK_COLORS.length];
+    const d = routeDistance(route);
+    const critCount = route.filter(b => b.fill >= 80).length;
+
+    html += `<div class="route-summary" style="border-color:${color}33;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-weight:700;font-size:12px;color:${color}">🚛 Truck ${i+1}</span>
+        <span style="font-size:10px;color:var(--text-muted)">${route.length} stops</span>
+      </div>
+      <div class="route-meta">
+        <div class="route-meta-item"><div class="val" style="color:${color}">${route.length}</div><div class="lbl">Stops</div></div>
+        <div class="route-meta-item"><div class="val" style="color:${color}">${d.toFixed(1)}</div><div class="lbl">km total</div></div>
+        <div class="route-meta-item"><div class="val" style="color:#f85149">${critCount}</div><div class="lbl">Critical</div></div>
+        <div class="route-meta-item"><div class="val" style="color:#2ea043">${(d / route.length).toFixed(1)}</div><div class="lbl">km/stop avg</div></div>
+      </div>
+      <div class="route-stops">
+        <div class="route-stop"><div class="stop-num stop-depot" style="background:${color}">D</div><div class="stop-id">DEPOT (Start)</div><div class="stop-dist"></div></div>`;
+
+    let prevPoint = DEPOT;
+    route.forEach((bin, j) => {
+      const d = dist(prevPoint, bin);
+      const cls = getFillClass(bin.fill);
+      const stopColor = getBinColor(bin.fill);
+      html += `<div class="route-stop" onclick="focusBin('${bin.id}')" style="cursor:pointer;">
+        <div class="stop-num" style="background:${stopColor};color:${bin.fill>=60?'#fff':'#000'}">${j+1}</div>
+        <div class="stop-id">${bin.id}</div>
+        <div class="stop-fill" style="color:${stopColor}">${bin.fill}%</div>
+        <div class="stop-dist">+${d.toFixed(1)}km</div>
+      </div>`;
+      prevPoint = bin;
+    });
+
+    const retDist = dist(prevPoint, DEPOT);
+    html += `<div class="route-stop"><div class="stop-num stop-depot" style="background:${color}">D</div><div class="stop-id">DEPOT (Return)</div><div class="stop-dist">+${retDist.toFixed(1)}km</div></div>`;
+    html += `</div></div>`;
+  });
+
+  el.innerHTML = html;
+}
+
+function focusBin(id) {
+  const bin = BINS_DATA.find(b => b.id === id);
+  if (!bin) return;
+  map.setView([bin.lat, bin.lng], 16, { animate: true });
+}
+
+function clearRoutes() {
+  routeLayers.forEach(l => map.removeLayer(l));
+  routeLayers = [];
+  document.getElementById('route-overlay').classList.remove('visible');
+  document.getElementById('stat-coverage').textContent = '0';
+}
+
+function autoOptimize() {
+  document.getElementById('thresh-slider').value = 60;
+  document.getElementById('thresh-val').textContent = '60%';
+  document.getElementById('algo-select').value = 'priority';
+  document.getElementById('stops-slider').value = 25;
+  document.getElementById('stops-val').textContent = '25';
+  document.getElementById('trucks-select').value = '3';
+  setTimeout(computeRoutes, 100);
+}
+
+// ============================================================
+// BINS LIST
+// ============================================================
+function renderBinList() {
+  const list = document.getElementById('bin-list');
+  let filtered = BINS_DATA;
+  
+  if (currentFilter !== 'all') {
+    const ranges = { critical: [80,100], high: [60,79], medium: [40,59], low: [0,39] };
+    const [lo, hi] = ranges[currentFilter];
+    filtered = filtered.filter(b => b.fill >= lo && b.fill <= hi);
+  }
+  
+  if (currentSearch) {
+    filtered = filtered.filter(b => b.id.toLowerCase().includes(currentSearch.toLowerCase()));
+  }
+
+  // Sort by fill desc
+  filtered = [...filtered].sort((a, b) => b.fill - a.fill);
+
+  list.innerHTML = filtered.slice(0, 100).map(bin => {
+    const color = getBinColor(bin.fill);
+    return `<div class="bin-item" onclick="focusBin('${bin.id}')">
+      <div class="bin-dot" style="background:${color}"></div>
+      <div class="bin-info">
+        <div class="id">${bin.id}</div>
+        <div class="loc">${bin.lat.toFixed(4)}, ${bin.lng.toFixed(4)}</div>
+      </div>
+      <div class="fill-pill" style="background:${color}22;color:${color}">${bin.fill}%</div>
+    </div>`;
+  }).join('') + (filtered.length > 100 ? `<div class="empty-state" style="padding:10px;"><small>Showing 100 of ${filtered.length} bins</small></div>` : '');
+}
+
+function filterBins(val) { currentSearch = val; renderBinList(); }
+function filterByLevel(level) { currentFilter = level; renderBinList(); }
+
+// ============================================================
+// TABS
+// ============================================================
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.querySelector(`.tab-btn[onclick="switchTab('${name}')"]`).classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+  if (name === 'bins') renderBinList();
+}
+
+// ============================================================
+// FILL BAR
+// ============================================================
+function updateFillBar() {
+  const total = BINS_DATA.length;
+  const c = BINS_DATA.filter(b => b.fill >= 80).length;
+  const h = BINS_DATA.filter(b => b.fill >= 60 && b.fill < 80).length;
+  const m = BINS_DATA.filter(b => b.fill >= 40 && b.fill < 60).length;
+  const l = BINS_DATA.filter(b => b.fill < 40).length;
+  document.getElementById('seg-critical').style.width = (c/total*100) + '%';
+  document.getElementById('seg-high').style.width = (h/total*100) + '%';
+  document.getElementById('seg-medium').style.width = (m/total*100) + '%';
+  document.getElementById('seg-low').style.width = (l/total*100) + '%';
+  const avg = Math.round(BINS_DATA.reduce((s, b) => s + b.fill, 0) / total);
+  document.getElementById('avg-fill-label').textContent = 'Avg: ' + avg + '%';
+}
+
+// ============================================================
+// ALERT TICKER
+// ============================================================
+function buildTicker() {
+  const critical = BINS_DATA.filter(b => b.status === 1).sort((a,b) => b.fill - a.fill);
+  const msgs = critical.slice(0, 15).map(b => `⚠ ${b.id}: ${b.fill}% OVERFLOW`).join('  ·  ');
+  const el = document.getElementById('ticker');
+  el.textContent = msgs + '   ';
+  // Simple scroll
+  let pos = 0;
+  setInterval(() => {
+    pos -= 1;
+    if (pos < -(msgs.length * 7)) pos = 0;
+    el.style.transform = `translateX(${pos}px)`;
+  }, 30);
+}
+
+// ============================================================
+// TOAST
+// ============================================================
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ============================================================
+// DYNAMIC LEAFLET LOADER
+// ============================================================
+(function() {
+  const script = document.createElement('script');
+  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+  script.onload = function() { initApp(); };
+  script.onerror = function() {
+    document.getElementById('map').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#f85149;font-size:14px;">⚠ Map failed to load. Check network connection.</div>';
+  };
+  document.head.appendChild(script);
+})();
+</script>
+</body>
+</html>

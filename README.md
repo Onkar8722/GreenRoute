@@ -103,8 +103,8 @@ GreenRoute/
 │
 └── 📁 docs/                  # Documentation
     ├── PROJECT_README.md     # Complete project documentation
-    ├── setup_db.sql         # Database setup SQL
-    └── database_schema.sql  # Database schemas
+    ├── setup_db.sql         # PostgreSQL database/user provisioning
+    └── database_schema.sql  # Canonical application schema (12 tables, 3 views)
 ```
 
 ---
@@ -145,12 +145,32 @@ copy config\.env.example config\.env
 python scripts/init_db.py
 ```
 
+The initializer loads the canonical schema from `docs/database_schema.sql` and
+sample bins from `data/pune_smart_bin_dataset.csv`, independent of the current
+working directory. It does not migrate incompatible existing schemas; those
+require a separately reviewed, backed-up migration.
+
 **5. Start the application:**
 ```bash
 python src/app.py
 ```
 
 Server runs at: **http://localhost:5000**
+
+### Write API Protection
+
+Database-changing API endpoints are disabled until `WRITE_API_TOKEN` is set in
+the server configuration. When `config/.env` exists, its values take precedence
+over process environment variables, so set the token there or ensure that file
+does not override the environment value. After setting a strong, private token,
+trusted non-browser clients must send it as `Authorization: Bearer <token>`.
+Do not place this token in frontend JavaScript or commit it to source control.
+Browser-based write actions remain unavailable unless an authenticated
+server-side integration is added. The development server binds to
+`127.0.0.1` by default; only set `HOST` to a network interface when you have
+configured an appropriate production server and access controls.
+Production startup also requires a private `SECRET_KEY`; development and test
+configurations generate an ephemeral key when none is configured.
 
 ---
 
@@ -555,7 +575,7 @@ monitor_system.py         # Real-time system health monitoring
 ### Configuration & Data
 ```
 requirements.txt          # Python dependencies (11 packages)
-database_schema.sql       # PostgreSQL schema (6 tables + 3 views)
+docs/database_schema.sql # Canonical PostgreSQL schema (12 tables + 3 views)
 data/pune_smart_bin_dataset.csv  # 104 sample bin locations
 .env.example              # Configuration template
 start_services.ps1        # Docker startup (Windows)

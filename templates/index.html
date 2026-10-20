@@ -1168,6 +1168,16 @@ var map = null;
 var fillChart = null;
 var sidebarCollapsed = false;
 
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[char]);
+}
+
 // ============================================================
 // DATA
 // ============================================================
@@ -1271,7 +1281,7 @@ function renderSimulationStatus(status) {
     logEl.innerHTML = '<div class="empty-state">Simulation log will appear here</div>';
     return;
   }
-  logEl.innerHTML = status.events.slice(-10).map(line => `<div class="telemetry-item" style="padding:8px;">${line}</div>`).join('');
+  logEl.innerHTML = status.events.slice(-10).map(line => `<div class="telemetry-item" style="padding:8px;">${escapeHtml(line)}</div>`).join('');
 }
 
 async function startSimulation() {
@@ -1324,8 +1334,8 @@ function renderTelemetryPanel(records) {
   el.innerHTML = records.map(rec => {
     return `<div class="telemetry-item">
       <div class="left">
-        <div><span class="label">Truck</span> <span class="value">${rec.truck_id || '—'}</span></div>
-        <div><span class="label">Driver</span> <span class="value">${rec.driver_id || 'n/a'}</span></div>
+        <div><span class="label">Truck</span> <span class="value">${escapeHtml(rec.truck_id || '—')}</span></div>
+        <div><span class="label">Driver</span> <span class="value">${escapeHtml(rec.driver_id || 'n/a')}</span></div>
         <div><span class="label">Speed</span> <span class="value">${rec.speed_kmh != null ? rec.speed_kmh.toFixed(1) + ' km/h' : '—'}</span></div>
         <div><span class="label">Fuel</span> <span class="value">${rec.fuel_consumption_liters_per_km != null ? rec.fuel_consumption_liters_per_km.toFixed(2) + ' L/km' : '—'}</span></div>
       </div>
@@ -1382,7 +1392,7 @@ async function uploadCsv() {
   const fd = new FormData();
   fd.append('file', inp.files[0]);
   try {
-    const r = await fetch('/api/bins/upload', { method: 'POST', body: fd });
+    const r = await fetch('/api/bins_upload', { method: 'POST', body: fd });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) {
       showToast('⚠ ' + (j.error || 'Upload failed'));
@@ -1434,7 +1444,7 @@ function makePopup(bin) {
   const statusLabel = bin.status === 1 ? '⚠ OVERFLOW' : '✓ Normal';
   const statusColor = bin.status === 1 ? '#f85149' : '#2ea043';
   return `<div style="min-width:160px">
-    <div class="popup-title">${bin.id}</div>
+    <div class="popup-title">${escapeHtml(bin.id)}</div>
     <div class="popup-row">Fill Level <span style="color:${color}">${bin.fill}%</span></div>
     <div class="popup-row">Status <span style="color:${statusColor}">${statusLabel}</span></div>
     <div class="popup-row">Lat <span>${bin.lat.toFixed(5)}</span></div>
@@ -1465,8 +1475,8 @@ function makeTruckPopup(rec) {
     ? `${rec.gps_latitude.toFixed(5)}, ${rec.gps_longitude.toFixed(5)}`
     : 'No GPS';
   return `<div style="min-width:180px">
-    <div class="popup-title">🚛 ${rec.truck_id || 'Truck'}</div>
-    <div class="popup-row">Driver <span>${rec.driver_id || 'n/a'}</span></div>
+    <div class="popup-title">🚛 ${escapeHtml(rec.truck_id || 'Truck')}</div>
+    <div class="popup-row">Driver <span>${escapeHtml(rec.driver_id || 'n/a')}</span></div>
     <div class="popup-row">Location <span>${location}</span></div>
     <div class="popup-row">Speed <span>${rec.speed_kmh != null ? rec.speed_kmh.toFixed(1) + ' km/h' : '—'}</span></div>
     <div class="popup-row">Fuel <span>${rec.fuel_consumption_liters_per_km != null ? rec.fuel_consumption_liters_per_km.toFixed(2) + ' L/km' : '—'}</span></div>
@@ -1738,9 +1748,9 @@ function renderRouteResults(routes, thresh, skipped, distKm) {
       const d = dist(prevPoint, bin);
       const cls = getFillClass(bin.fill);
       const stopColor = getBinColor(bin.fill);
-      html += `<div class="route-stop" onclick="focusBin('${bin.id}')" style="cursor:pointer;">
+      html += `<div class="route-stop" data-bin-id="${escapeHtml(bin.id)}" style="cursor:pointer;">
         <div class="stop-num" style="background:${stopColor};color:${bin.fill>=60?'#fff':'#000'}">${j+1}</div>
-        <div class="stop-id">${bin.id}</div>
+        <div class="stop-id">${escapeHtml(bin.id)}</div>
         <div class="stop-fill" style="color:${stopColor}">${bin.fill}%</div>
         <div class="stop-dist">+${d.toFixed(1)}km</div>
       </div>`;
@@ -1756,11 +1766,14 @@ function renderRouteResults(routes, thresh, skipped, distKm) {
     const show = skipped.slice(0, 25);
     html += `<div class="route-summary" style="border-color:#f8514966;margin-top:10px;">
       <div style="font-weight:700;font-size:11px;color:var(--red-light);margin-bottom:6px;">⚠ Skipped (${skipped.length}) — eligible but not assigned (capacity)</div>
-      <div style="font-size:10px;color:var(--text-muted);max-height:120px;overflow-y:auto;">${show.map(b => b.id + ' (' + b.fill + '%)').join(' · ')}${skipped.length > 25 ? ' …' : ''}</div>
+      <div style="font-size:10px;color:var(--text-muted);max-height:120px;overflow-y:auto;">${show.map(b => `${escapeHtml(b.id)} (${b.fill}%)`).join(' · ')}${skipped.length > 25 ? ' …' : ''}</div>
     </div>`;
   }
 
   el.innerHTML = html;
+  el.querySelectorAll('[data-bin-id]').forEach(item => {
+    item.addEventListener('click', () => focusBin(item.dataset.binId));
+  });
 }
 
 function focusBin(id) {
@@ -1808,15 +1821,18 @@ function renderBinList() {
 
   list.innerHTML = filtered.slice(0, 100).map(bin => {
     const color = getBinColor(bin.fill);
-    return `<div class="bin-item" onclick="focusBin('${bin.id}')">
+    return `<div class="bin-item" data-bin-id="${escapeHtml(bin.id)}">
       <div class="bin-dot" style="background:${color}"></div>
       <div class="bin-info">
-        <div class="id">${bin.id}</div>
+        <div class="id">${escapeHtml(bin.id)}</div>
         <div class="loc">${bin.lat.toFixed(4)}, ${bin.lng.toFixed(4)}</div>
       </div>
       <div class="fill-pill" style="background:${color}22;color:${color}">${bin.fill}%</div>
     </div>`;
   }).join('') + (filtered.length > 100 ? `<div class="empty-state" style="padding:10px;"><small>Showing 100 of ${filtered.length} bins</small></div>` : '');
+  list.querySelectorAll('[data-bin-id]').forEach(item => {
+    item.addEventListener('click', () => focusBin(item.dataset.binId));
+  });
 }
 
 function filterBins(val) { currentSearch = val; renderBinList(); }

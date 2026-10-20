@@ -4,6 +4,7 @@ Handles environment variables and application settings.
 """
 
 import os
+import secrets
 from typing import Optional
 from dotenv import load_dotenv
 
@@ -12,7 +13,15 @@ config_dir = os.path.dirname(os.path.abspath(__file__))
 env_path = os.path.join(config_dir, '.env')
 if not os.path.exists(env_path):
     env_path = os.path.join(os.path.dirname(config_dir), '.env')
-load_dotenv(dotenv_path=env_path, override=True)
+load_dotenv(
+    dotenv_path=env_path,
+    override=(
+        os.getenv('FLASK_ENV', '').strip().lower() != 'testing'
+        and os.getenv('TESTING', '').lower() != 'true'
+    ),
+)
+
+TEST_DATABASE_NAME = 'greenroute_test_db'
 
 
 class Config:
@@ -21,7 +30,9 @@ class Config:
     # Flask
     DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
     TESTING = os.getenv('TESTING', 'False').lower() == 'true'
-    SECRET_KEY = os.getenv('SECRET_KEY', 'dev-key-change-in-production')
+    SECRET_KEY = os.getenv('SECRET_KEY')
+    HOST = os.getenv('HOST', '127.0.0.1')
+    WRITE_API_TOKEN = os.getenv('WRITE_API_TOKEN', '')
     
     # Database
     DB_HOST = os.getenv('DB_HOST', 'localhost')
@@ -129,15 +140,20 @@ class Config:
 
 class DevelopmentConfig(Config):
     """Development configuration."""
-    DEBUG = True
+    SECRET_KEY = Config.SECRET_KEY or secrets.token_hex(32)
+    DEBUG = Config.DEBUG
     TESTING = False
 
 
 class TestingConfig(Config):
     """Testing configuration."""
-    DEBUG = True
+    SECRET_KEY = Config.SECRET_KEY or secrets.token_hex(32)
+    DEBUG = False
     TESTING = True
-    DB_NAME = 'greenroute_test_db'
+    DB_NAME = TEST_DATABASE_NAME
+    DB_CONFIG = {**Config.DB_CONFIG, 'database': DB_NAME}
+    REDIS_ENABLED = False
+    MQTT_ENABLED = False
 
 
 class ProductionConfig(Config):
@@ -159,11 +175,19 @@ def get_config(env: Optional[str] = None) -> Config:
     """
     if env is None:
         env = os.getenv('FLASK_ENV', 'development')
+        # Treat TESTING as an explicit mode switch even when FLASK_ENV was left
+        # at its development default. Explicit arguments remain authoritative.
+        if os.getenv('TESTING', '').lower() == 'true':
+            env = 'testing'
+    env = env.strip().lower()
     
     config_map = {
         'development': DevelopmentConfig,
         'testing': TestingConfig,
         'production': ProductionConfig,
     }
-    
-    return config_map.get(env, DevelopmentConfig)
+
+    selected_config = config_map.get(env, DevelopmentConfig)
+    if selected_config is ProductionConfig and not selected_config.SECRET_KEY:
+        raise ValueError("SECRET_KEY must be configured for production")
+    return selected_config

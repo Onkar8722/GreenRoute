@@ -1,4 +1,14 @@
 #!/usr/bin/env python3
+import os
+
+if __name__ != "__main__":
+    import unittest
+    raise unittest.SkipTest("Live-server smoke test; skipped during offline test discovery.")
+if os.environ.get("GREENROUTE_ENABLE_LIVE_TESTS") != "1":
+    raise SystemExit(
+        "This smoke test contacts a running server. Set GREENROUTE_ENABLE_LIVE_TESTS=1 to opt in."
+    )
+
 import requests
 
 print('Testing all Dashboard APIs...\n')

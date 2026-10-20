@@ -7,7 +7,6 @@ Usage:
     python init_db.py
 """
 
-import os
 import sys
 import time
 import logging
@@ -67,7 +66,7 @@ def main():
     logger.info("=" * 60)
     
     # Get base directory
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = Path(__file__).resolve().parent.parent
     
     # Use config
     config = Config
@@ -95,8 +94,7 @@ def main():
     # Initialize schema
     logger.info("")
     logger.info("Initializing database schema...")
-    schema_file = os.path.join(base_dir, "database_schema.sql")
-    if db_mgr.initialize_schema(schema_file):
+    if db_mgr.initialize_schema():
         logger.info("✅ Schema initialized successfully")
     else:
         logger.error("❌ Failed to initialize schema")
@@ -105,17 +103,22 @@ def main():
     # Load sample data
     logger.info("")
     logger.info("Loading sample data...")
-    csv_file = os.path.join(base_dir, "data", "pune_smart_bin_dataset.csv")
-    if os.path.exists(csv_file):
-        count = db_mgr.load_sample_data(csv_file)
-        logger.info(f"✅ Loaded {count} bin records from CSV")
-    else:
-        logger.warning(f"⚠️  Sample data file not found: {csv_file}")
+    csv_file = project_root / "data" / "pune_smart_bin_dataset.csv"
+    count = db_mgr.load_sample_data(csv_file)
+    if count <= 0:
+        logger.error(
+            "❌ Sample data could not be loaded: "
+            f"{db_mgr.last_error or 'CSV contains no records'}"
+        )
+        return False
+    logger.info(f"✅ Loaded {count} bin records from CSV")
     
     # Record migration
     logger.info("")
     logger.info("Recording migration...")
-    db_mgr.record_migration("1.0.0", "Initial schema and sample data")
+    if not db_mgr.record_migration("2.0.0", "Canonical database schema and sample data"):
+        logger.error("❌ Failed to record schema version")
+        return False
     logger.info("✅ Migration recorded")
     
     # Health check

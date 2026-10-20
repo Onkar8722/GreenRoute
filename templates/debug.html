@@ -52,6 +52,16 @@
     </div>
 
     <script>
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>"']/g, char => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            })[char]);
+        }
+
         async function testAPI(name, url) {
             const statusDiv = document.getElementById('apiStatus');
             try {
@@ -87,7 +97,7 @@
                         <tr><th>ID</th><th>Fill %</th><th>Lat</th><th>Lng</th><th>Battery</th></tr>
                         ${data.bins.slice(0, 5).map(b => `
                             <tr>
-                                <td>${b.id}</td>
+                                <td>${escapeHtml(b.id)}</td>
                                 <td>${b.fill}</td>
                                 <td>${b.lat.toFixed(4)}</td>
                                 <td>${b.lng.toFixed(4)}</td>
@@ -126,7 +136,7 @@
                 const html = `
                     <p class="status success">✓ Forecasts: ${data.forecasts.length} bins</p>
                     <p>Predicted Critical: <strong>${data.predicted_critical_bins}</strong></p>
-                    <p>Sample Bin: <strong>${sample.id}</strong></p>
+                    <p>Sample Bin: <strong>${escapeHtml(sample.id)}</strong></p>
                     <p>Current Fill: <strong>${sample.fill}%</strong></p>
                     <p>Predicted Fill (24h): <strong>${sample.predicted_fill}%</strong></p>
                     <p>Hourly Data Points: <strong>${sample.data.length}</strong></p>

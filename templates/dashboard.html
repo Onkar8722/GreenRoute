@@ -431,6 +431,16 @@
         let markers = [];
         let fillDistChart, forecastChart;
 
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>"']/g, char => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            })[char]);
+        }
+
         // Initialize map
         function initMap() {
             // Default center (Pune)
@@ -501,7 +511,7 @@
                     }).addTo(map);
 
                     marker.bindPopup(`
-                        <strong>Bin ${bin.id}</strong><br>
+                        <strong>Bin ${escapeHtml(bin.id)}</strong><br>
                         Fill: ${bin.fill.toFixed(1)}%<br>
                         Location: ${bin.lat.toFixed(4)}, ${bin.lng.toFixed(4)}<br>
                         Status: ${bin.fill > 70 ? '🔴 Critical' : bin.fill > 30 ? '🟡 Warning' : '🟢 OK'}
@@ -531,7 +541,7 @@
             const sorted = bins.sort((a, b) => b.fill - a.fill).slice(0, 6);
             const html = sorted.map(bin => `
                 <div class="bin-item">
-                    <div class="bin-name">Bin ${bin.id}</div>
+                    <div class="bin-name">Bin ${escapeHtml(bin.id)}</div>
                     <div class="bin-info">Lat: ${bin.lat.toFixed(4)}, Lng: ${bin.lng.toFixed(4)}</div>
                     <div class="progress-bar">
                         <div class="progress-fill" style="width: ${bin.fill}%"></div>
@@ -669,10 +679,10 @@
                 
                 const alerts = (data.bins || []).slice(0, 5);
                 const html = alerts.map(alert => {
-                    const severity = alert.alert_type.toLowerCase();
+                    const severity = escapeHtml(alert.alert_type.toLowerCase());
                     return `
                         <div class="alert-item ${severity}">
-                            <strong>Bin ${alert.bin_id}</strong> - ${alert.message}<br>
+                            <strong>Bin ${escapeHtml(alert.bin_id)}</strong> - ${escapeHtml(alert.message)}<br>
                             <small>${new Date(alert.created_at).toLocaleString()}</small>
                         </div>
                     `;

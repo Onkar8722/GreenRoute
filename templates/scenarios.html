@@ -253,15 +253,26 @@
             document.getElementById('resultsContent').innerHTML = html;
         }
 
+        function appendTextCell(row, value) {
+            const cell = document.createElement('td');
+            cell.textContent = value == null ? '' : String(value);
+            row.appendChild(cell);
+            return cell;
+        }
+
         async function saveCurrentScenario() {
             if (!currentScenario) return;
             
             try {
-                await fetch('/api/scenarios', {
+                const response = await fetch('/api/scenarios', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(currentScenario)
                 });
+                const result = await response.json();
+                if (!response.ok) {
+                    throw new Error(result.error || 'Scenario could not be saved');
+                }
                 
                 alert('✅ Scenario saved!');
                 refreshScenarios();
@@ -277,24 +288,42 @@
                 const data = await res.json();
                 scenariosData = data.scenarios;
                 
-                const html = data.scenarios.map(s => `
-                    <div class="scenario-item" onclick="selectScenario('${s.scenario_id}')">
-                        <div class="scenario-name">${s.name}</div>
-                        <div class="scenario-date">${s.distance_km.toFixed(1)} km • ${s.total_time_minutes} min</div>
-                    </div>
-                `).join('');
-                
-                document.getElementById('scenariosList').innerHTML = html || '<p style="color: #a0a0a0;">No saved scenarios</p>';
-                
-                // Update comparison checkboxes
-                const checkboxHtml = data.scenarios.map(s => `
-                    <label style="display: flex; align-items: center; gap: 8px; font-size: 12px;">
-                        <input type="checkbox" value="${s.scenario_id}"/>
-                        ${s.name}
-                    </label>
-                `).join('');
-                
-                document.getElementById('comparisonCheckboxes').innerHTML = checkboxHtml;
+                const list = document.getElementById('scenariosList');
+                const checkboxes = document.getElementById('comparisonCheckboxes');
+                list.replaceChildren();
+                checkboxes.replaceChildren();
+
+                data.scenarios.forEach(scenario => {
+                    const item = document.createElement('div');
+                    item.className = 'scenario-item';
+                    item.addEventListener('click', () => selectScenario(item));
+
+                    const name = document.createElement('div');
+                    name.className = 'scenario-name';
+                    name.textContent = scenario.name;
+                    item.appendChild(name);
+
+                    const details = document.createElement('div');
+                    details.className = 'scenario-date';
+                    details.textContent = `${scenario.distance_km.toFixed(1)} km • ${scenario.total_time_minutes} min`;
+                    item.appendChild(details);
+                    list.appendChild(item);
+
+                    const label = document.createElement('label');
+                    label.style.cssText = 'display: flex; align-items: center; gap: 8px; font-size: 12px;';
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.value = scenario.scenario_id;
+                    label.append(checkbox, document.createTextNode(scenario.name));
+                    checkboxes.appendChild(label);
+                });
+                if (!data.scenarios.length) {
+                    const empty = document.createElement('p');
+                    empty.style.color = '#a0a0a0';
+                    empty.textContent = 'No saved scenarios';
+                    list.appendChild(empty);
+                }
+
                 document.getElementById('comparisonCard').style.display = 'block';
                 
             } catch(e) {
@@ -302,9 +331,9 @@
             }
         }
 
-        function selectScenario(scenarioId) {
+        function selectScenario(item) {
             document.querySelectorAll('.scenario-item').forEach(item => item.classList.remove('active'));
-            event.target.closest('.scenario-item').classList.add('active');
+            item.classList.add('active');
         }
 
         async function compareScenarios() {
@@ -326,17 +355,30 @@
                 const data = await res.json();
                 
                 // Display table
-                const rows = data.scenarios.map(s => `
-                    <tr>
-                        <td>${s.name}</td>
-                        <td>${s.distance_km.toFixed(1)} <div class="improvement ${s.distance_improvement > 0 ? 'negative' : ''}">${s.distance_improvement > 0 ? '+' : ''}${s.distance_improvement}%</div></td>
-                        <td>${s.time_minutes} <div class="improvement ${s.time_improvement > 0 ? 'negative' : ''}">${s.time_improvement > 0 ? '+' : ''}${s.time_improvement}%</div></td>
-                        <td>${s.emissions_kg.toFixed(1)} <div class="improvement ${s.emissions_improvement > 0 ? 'negative' : ''}">${s.emissions_improvement > 0 ? '+' : ''}${s.emissions_improvement}%</div></td>
-                        <td>$${s.cost.toFixed(2)}</td>
-                    </tr>
-                `).join('');
-                
-                document.getElementById('comparisonTableBody').innerHTML = rows;
+                const tableBody = document.getElementById('comparisonTableBody');
+                tableBody.replaceChildren();
+                data.scenarios.forEach(scenario => {
+                    const row = document.createElement('tr');
+                    appendTextCell(row, scenario.name);
+                    [
+                        ['distance_km', 'distance_improvement'],
+                        ['time_minutes', 'time_improvement'],
+                        ['emissions_kg', 'emissions_improvement']
+                    ].forEach(([metric, improvement]) => {
+                        const cell = appendTextCell(row, '');
+                        const value = Number(scenario[metric]);
+                        const change = Number(scenario[improvement]);
+                        cell.appendChild(document.createTextNode(
+                            metric === 'time_minutes' ? value.toFixed(1) : value.toFixed(1)
+                        ));
+                        const badge = document.createElement('div');
+                        badge.className = `improvement${change > 0 ? ' negative' : ''}`;
+                        badge.textContent = `${change > 0 ? '+' : ''}${change}%`;
+                        cell.appendChild(badge);
+                    });
+                    appendTextCell(row, `$${scenario.cost.toFixed(2)}`);
+                    tableBody.appendChild(row);
+                });
                 document.getElementById('comparisonTable').style.display = 'table';
                 
                 // Draw chart
