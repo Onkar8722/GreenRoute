@@ -154,6 +154,7 @@ class FleetManagementAPI:
                         'vehicle': vehicle['license_plate'],
                         'bins': route,
                         'distance_km': round(distance, 2),
+                        'distance_source': 'haversine',
                         'duration_minutes': duration,
                         'status': 'assigned'
                     })
@@ -168,6 +169,7 @@ class FleetManagementAPI:
                 'success': True,
                 'assignments': assignments,
                 'total_distance_km': round(total_distance, 2),
+                'distance_source': 'haversine',
                 'total_time_minutes': total_duration,
                 'total_cost_estimate': round(total_cost, 2)
             }

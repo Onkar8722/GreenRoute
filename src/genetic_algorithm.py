@@ -46,8 +46,8 @@ class GeneticAlgorithm:
         self.bin_ids = [b['id'] for b in bins]
         self.distance_matrix = distance_matrix
         
-        self.population_size = population_size
-        self.generations = generations
+        self.population_size = max(1, int(population_size))
+        self.generations = max(1, int(generations))
         self.mutation_rate = mutation_rate
         self.crossover_rate = crossover_rate
         
@@ -68,36 +68,75 @@ class GeneticAlgorithm:
         self.best_fitness_history = []
         self.best_route = None
         self.best_fitness = float('inf')
-    
-    def haversine_distance(self, loc1: Dict, loc2: Dict) -> float:
-        """Calculate distance between two locations in km."""
+
+        if len(set(self.bin_ids)) != len(self.bin_ids):
+            raise ValueError("bin IDs must be unique")
+        if self.depot['id'] in self.bin_ids:
+            raise ValueError("bin IDs must not use the depot ID")
+
+    @property
+    def distance_source(self) -> str:
+        """Return the metric this optimizer uses for every route leg."""
+        return "road_network" if self.distance_matrix is not None else "haversine"
+
+    def _haversine_distance(self, loc1: Dict, loc2: Dict) -> float:
         key = (loc1['id'], loc2['id'])
-        
-        # Check pre-computed road matrix first
-        if self.distance_matrix:
-            if loc1['id'] in self.distance_matrix and loc2['id'] in self.distance_matrix[loc1['id']]:
-                road_dist = self.distance_matrix[loc1['id']][loc2['id']]
-                if road_dist != float('inf'):
-                    return road_dist
-        
-        # Check cache
+
         if key in self.distance_cache:
             return self.distance_cache[key]
-        
+
         R = 6371  # Earth's radius in km
         lat1, lng1 = math.radians(loc1['lat']), math.radians(loc1['lng'])
         lat2, lng2 = math.radians(loc2['lat']), math.radians(loc2['lng'])
-        
+
         dlat = lat2 - lat1
         dlng = lng2 - lng1
-        
+
         a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlng/2)**2
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-        
+
         distance = R * c
         self.distance_cache[key] = distance
         return distance
-    
+
+    def distance_between(self, loc1: Dict, loc2: Dict) -> float:
+        """Use a complete road matrix, or Haversine when no matrix was supplied.
+
+        A supplied but incomplete matrix is an error. Mixing road and straight-line
+        legs would make the reported route cost ambiguous.
+        """
+        if loc1['id'] == loc2['id']:
+            return 0.0
+
+        if self.distance_matrix is not None:
+            try:
+                road_dist = self.distance_matrix[loc1['id']][loc2['id']]
+            except (KeyError, TypeError):
+                raise ValueError(
+                    f"Road distance matrix is missing {loc1['id']!r} -> {loc2['id']!r}"
+                ) from None
+            if isinstance(road_dist, bool) or not isinstance(road_dist, (int, float)):
+                raise ValueError(
+                    f"Road distance matrix has no valid distance for "
+                    f"{loc1['id']!r} -> {loc2['id']!r}"
+                )
+            try:
+                road_distance = float(road_dist)
+            except (OverflowError, ValueError):
+                road_distance = float('nan')
+            if not math.isfinite(road_distance) or road_distance < 0:
+                raise ValueError(
+                    f"Road distance matrix has no valid distance for "
+                    f"{loc1['id']!r} -> {loc2['id']!r}"
+                )
+            return road_distance
+
+        return self._haversine_distance(loc1, loc2)
+
+    def haversine_distance(self, loc1: Dict, loc2: Dict) -> float:
+        """Calculate straight-line Haversine distance, regardless of matrix."""
+        return self._haversine_distance(loc1, loc2)
+
     def calculate_route_distance(self, route: List[str]) -> float:
         """Calculate total distance for a route."""
         distance = 0
@@ -105,11 +144,11 @@ class GeneticAlgorithm:
         
         for bin_id in route:
             next_loc = self.locations[bin_id]
-            distance += self.haversine_distance(current, next_loc)
+            distance += self.distance_between(current, next_loc)
             current = next_loc
         
         # Return to depot
-        distance += self.haversine_distance(current, self.depot)
+        distance += self.distance_between(current, self.depot)
         
         return distance
     
@@ -183,7 +222,7 @@ class GeneticAlgorithm:
         Returns:
             Tuple of two parent routes
         """
-        tournament_size = 3
+        tournament_size = min(3, len(population))
         
         # Tournament 1
         indices1 = random.sample(range(len(population)), tournament_size)
@@ -200,7 +239,7 @@ class GeneticAlgorithm:
         Order Crossover (OX) operation.
         Preserves relative order while mixing parental genes.
         """
-        if random.random() > self.crossover_rate:
+        if len(parent1) < 2 or len(parent2) < 2 or random.random() > self.crossover_rate:
             return deepcopy(parent1)
         
         size = len(parent1)
@@ -227,7 +266,7 @@ class GeneticAlgorithm:
         """
         Mutation operator: Swap two random cities.
         """
-        if random.random() > self.mutation_rate:
+        if len(route) < 2 or random.random() > self.mutation_rate:
             return route
         
         mutated = deepcopy(route)
@@ -245,6 +284,17 @@ class GeneticAlgorithm:
         """
         logger.info(f"Starting GA optimization with pop_size={self.population_size}, "
                    f"generations={self.generations}")
+
+        if not self.bin_ids:
+            self.best_route = []
+            self.best_fitness = self.fitness([])
+            return [], self.best_fitness
+
+        if len(self.bin_ids) == 1:
+            self.best_route = self.bin_ids.copy()
+            self.best_fitness = self.fitness(self.best_route)
+            self.best_fitness_history.append(self.best_fitness)
+            return self.best_route.copy(), self.best_fitness
         
         # Initialize
         population = self.initialize_population()
@@ -291,11 +341,12 @@ class GeneticAlgorithm:
     
     def get_summary(self) -> Dict:
         """Get optimization summary."""
-        if not self.best_route:
+        if self.best_route is None:
             return {"error": "Optimization not run yet"}
         
         return {
             "route": self.best_route,
+            "distance_source": self.distance_source,
             "fitness_score": self.best_fitness,
             "distance_km": self.calculate_route_distance(self.best_route),
             "time_minutes": self.calculate_route_time(self.best_route),

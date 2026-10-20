@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from flask import Flask, jsonify, redirect, render_template, request, url_for
+    from werkzeug.exceptions import BadRequest
     import psycopg2
     from psycopg2.extras import Json, RealDictCursor
 
@@ -663,6 +664,155 @@ def route_distance_km(route: list[dict]) -> float:
     return total
 
 
+def _is_finite_number(value) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (OverflowError, TypeError, ValueError):
+        return False
+
+
+def _matrix_distance(matrix: dict | None, start_id, end_id) -> float | None:
+    if start_id == end_id:
+        return 0.0
+    if not isinstance(matrix, dict):
+        return None
+    try:
+        distance = matrix[start_id][end_id]
+    except (KeyError, TypeError):
+        return None
+    if not _is_finite_number(distance) or distance < 0:
+        return None
+    return float(distance)
+
+
+def _route_distance_from_matrix(route: list[dict], matrix: dict) -> float | None:
+    if not route:
+        return 0.0
+    ordered_stops = [DEPOT] + route + [DEPOT]
+    total = 0.0
+    for start, end in zip(ordered_stops, ordered_stops[1:]):
+        distance = _matrix_distance(matrix, start["id"], end["id"])
+        if distance is None:
+            return None
+        total += distance
+    return total
+
+
+def _matrix_covers_locations(bins: list[dict], depot: dict, matrix: dict | None) -> bool:
+    locations = [depot] + bins
+    if not isinstance(matrix, dict):
+        return False
+    for start in locations:
+        for end in locations:
+            if start["id"] != end["id"] and _matrix_distance(
+                matrix, start["id"], end["id"]
+            ) is None:
+                return False
+    return True
+
+
+def _route_distance_report(routes: list[list[dict]]):
+    """Return one consistent metric source for all route distances in a response."""
+    if not any(routes):
+        return [0.0 for _ in routes], "none", "empty", None, [None for _ in routes]
+
+    try:
+        routed_bins = [bin_item for route in routes for bin_item in route]
+        matrix = build_distance_matrix(routed_bins, DEPOT, cap=100)
+        if matrix is None:
+            raise ValueError("road distance matrix is unavailable")
+
+        road_distances = []
+        route_matrices = []
+        for route in routes:
+            if not route:
+                road_distances.append(0.0)
+                route_matrices.append(None)
+                continue
+            distance = _route_distance_from_matrix(route, matrix)
+            if distance is None:
+                raise ValueError("road matrix does not cover every directed route leg")
+            road_distances.append(round(distance, 2))
+            route_matrices.append(matrix)
+        return road_distances, "road_network", "ok", None, route_matrices
+    except Exception as exc:
+        logger.warning("Road route distance unavailable; using Haversine for all routes: %s", exc)
+        reason = "Road distance matrix is unavailable or incomplete; Haversine distances are reported."
+        return (
+            [round(route_distance_km(route), 2) for route in routes],
+            "haversine",
+            "degraded",
+            reason,
+            [None for _ in routes],
+        )
+
+
+def _parse_route_request_body():
+    raw_body = request.get_data(cache=True)
+    if not raw_body.strip():
+        return {}, None
+    if not request.is_json:
+        return None, "Content-Type must be application/json"
+    try:
+        body = request.get_json(silent=False)
+    except BadRequest:
+        return None, "Malformed JSON request body"
+    if not isinstance(body, dict):
+        return None, "JSON request body must be an object"
+    return body, None
+
+
+def _parse_route_integer(body: dict, name: str, default: int, minimum: int, maximum: int):
+    value = body.get(name, default)
+    if isinstance(value, bool):
+        return None, f"{name} must be an integer between {minimum} and {maximum}"
+    if isinstance(value, int):
+        parsed = value
+    elif isinstance(value, str):
+        text_value = value.strip()
+        digits = text_value[1:] if text_value[:1] in ("+", "-") else text_value
+        if not digits or not digits.isdecimal():
+            return None, f"{name} must be an integer between {minimum} and {maximum}"
+        parsed = int(text_value)
+    else:
+        return None, f"{name} must be an integer between {minimum} and {maximum}"
+    if not minimum <= parsed <= maximum:
+        return None, f"{name} must be between {minimum} and {maximum}"
+    return parsed, None
+
+
+def _validate_route_bins(bins: list[dict]) -> str | None:
+    if not isinstance(bins, list):
+        return "Bin data must be a list"
+    seen_ids = set()
+    for index, bin_item in enumerate(bins):
+        if not isinstance(bin_item, dict):
+            return f"Bin at index {index} must be an object"
+        bin_id = bin_item.get("id")
+        if not isinstance(bin_id, str) or not bin_id.strip() or bin_id != bin_id.strip():
+            return f"Bin at index {index} must have a non-empty, trimmed string ID"
+        if bin_id == DEPOT["id"]:
+            return f"Bin ID {bin_id!r} is reserved for the depot"
+        if bin_id in seen_ids:
+            return f"Duplicate bin ID {bin_id!r}"
+        seen_ids.add(bin_id)
+
+        for coordinate, low, high in (("lat", -90, 90), ("lng", -180, 180)):
+            value = bin_item.get(coordinate)
+            if not _is_finite_number(value) or not low <= value <= high:
+                return (
+                    f"Bin {bin_id!r} has invalid {coordinate}; expected a finite value "
+                    f"between {low} and {high}"
+                )
+
+        fill = bin_item.get("fill")
+        if not _is_finite_number(fill) or not 0 <= fill <= 100:
+            return f"Bin {bin_id!r} has invalid fill; expected a finite value between 0 and 100"
+    return None
+
+
 def nearest_neighbor(bins: list[dict], max_stops: int) -> list[dict]:
     remaining = list(bins)
     route: list[dict] = []
@@ -930,24 +1080,43 @@ def api_stats():
 
 @app.post("/api/route")
 def api_route():
-    bins = get_bins_data()
-    body = request.get_json(silent=True) or {}
-    threshold = int(body.get("threshold", 60))
+    body, body_error = _parse_route_request_body()
+    if body_error:
+        return jsonify({"error": body_error}), 400
+
+    threshold, error = _parse_route_integer(body, "threshold", 60, 0, 100)
+    if error:
+        return jsonify({"error": error}), 400
+    max_stops, error = _parse_route_integer(body, "max_stops", 20, 1, 200)
+    if error:
+        return jsonify({"error": error}), 400
+    num_trucks, error = _parse_route_integer(body, "num_trucks", 3, 1, 10)
+    if error:
+        return jsonify({"error": error}), 400
+
     algo = body.get("algorithm", "priority")
-    max_stops = int(body.get("max_stops", 20))
-    num_trucks = int(body.get("num_trucks", 3))
+    if not isinstance(algo, str) or algo not in (
+        "nearest", "priority", "cluster", "ga", "multiobjective", "adaptive"
+    ):
+        return jsonify({"error": "algorithm must be nearest, priority, cluster, ga, multiobjective, or adaptive"}), 400
+    adaptive_value = body.get("adaptive", False)
+    if not isinstance(adaptive_value, bool):
+        return jsonify({"error": "adaptive must be a boolean"}), 400
+    adaptive = adaptive_value or algo == "adaptive"
 
-    threshold = max(0, min(100, threshold))
-    max_stops = max(1, min(200, max_stops))
-    num_trucks = max(1, min(10, num_trucks))
-    if algo not in ("nearest", "priority", "cluster", "ga", "multiobjective"):
-        algo = "priority"
-
-    adaptive = bool(body.get("adaptive", False) or algo == "adaptive")
+    try:
+        bins = get_bins_data()
+    except (TypeError, ValueError, OverflowError) as exc:
+        return jsonify({"error": f"Invalid bin data: {exc}"}), 422
+    bins_error = _validate_route_bins(bins)
+    if bins_error:
+        return jsonify({"error": bins_error}), 422
     eligible = [b for b in bins if b["fill"] >= threshold]
     
     routes = compute_routes_logic(eligible, algo, num_trucks, max_stops, threshold, adaptive)
-    distances = [round(route_distance_km(r), 2) for r in routes]
+    distances, distance_source, distance_status, distance_fallback_reason, route_matrices = (
+        _route_distance_report(routes)
+    )
     skipped = skipped_bins(eligible, routes)
     
     # Calculate emissions and detailed path geometry
@@ -963,9 +1132,15 @@ def api_route():
             path_geometries.append([])
             
     if algo in ('ga', 'multiobjective'):
-        for route in routes:
+        for route, route_matrix in zip(routes, route_matrices):
             if route:
-                ga = GeneticAlgorithm(DEPOT, route, population_size=20, generations=10)
+                ga = GeneticAlgorithm(
+                    DEPOT,
+                    route,
+                    population_size=20,
+                    generations=10,
+                    distance_matrix=route_matrix if distance_source == "road_network" else None,
+                )
                 # Just calculate, don't optimize (already done above)
                 co2 = ga.calculate_emissions(route)
                 emissions.append(round(co2, 2))
@@ -979,10 +1154,14 @@ def api_route():
         "routes": routes,
         "path_geometries": path_geometries,
         "distances_km": distances,
+        "distance_source": distance_source,
+        "distance_status": distance_status,
         "emissions_kg_co2": emissions if emissions else None,
         "skipped": skipped,
         "eligible_count": len(eligible),
     }
+    if distance_fallback_reason:
+        result["distance_fallback_reason"] = distance_fallback_reason
     
     logger.info(f"Route computation: algo={algo}, trucks={num_trucks}, eligible={len(eligible)}")
     return jsonify(result)
@@ -992,18 +1171,30 @@ def api_route():
 def api_route_optimize_ga():
     """Optimize single route using Genetic Algorithm with full statistics."""
     try:
-        bins_data = get_bins_data()
-        body = request.get_json(silent=True) or {}
-        
-        threshold = int(body.get("threshold", 60))
-        max_stops = int(body.get("max_stops", 20))
-        population_size = int(body.get("population_size", 100))
-        generations = int(body.get("generations", 50))
-        
-        threshold = max(0, min(100, threshold))
-        max_stops = max(1, min(200, max_stops))
-        population_size = max(10, min(500, population_size))
-        generations = max(5, min(100, generations))
+        body, body_error = _parse_route_request_body()
+        if body_error:
+            return jsonify({"error": body_error}), 400
+
+        threshold, error = _parse_route_integer(body, "threshold", 60, 0, 100)
+        if error:
+            return jsonify({"error": error}), 400
+        max_stops, error = _parse_route_integer(body, "max_stops", 20, 1, 200)
+        if error:
+            return jsonify({"error": error}), 400
+        population_size, error = _parse_route_integer(body, "population_size", 100, 10, 500)
+        if error:
+            return jsonify({"error": error}), 400
+        generations, error = _parse_route_integer(body, "generations", 50, 5, 100)
+        if error:
+            return jsonify({"error": error}), 400
+
+        try:
+            bins_data = get_bins_data()
+        except (TypeError, ValueError, OverflowError) as exc:
+            return jsonify({"error": f"Invalid bin data: {exc}"}), 422
+        bins_error = _validate_route_bins(bins_data)
+        if bins_error:
+            return jsonify({"error": bins_error}), 422
         
         # Get eligible bins
         eligible = [b for b in bins_data if b["fill"] >= threshold]
@@ -1013,8 +1204,23 @@ def api_route_optimize_ga():
         # Limit to max_stops
         candidates = sorted(eligible, key=lambda b: -b["fill"])[:max_stops]
         
-        # Build True Distance Matrix for exact routing lengths
-        dist_matrix = build_distance_matrix(candidates, DEPOT, cap=100)
+        # Only optimize against road cost when the matrix covers every directed arc.
+        # Otherwise the whole route explicitly uses Haversine; never mix the two.
+        distance_fallback_reason = None
+        try:
+            candidate_matrix = build_distance_matrix(candidates, DEPOT, cap=100)
+        except Exception as exc:
+            logger.warning("Road distance matrix unavailable for GA route: %s", exc)
+            candidate_matrix = None
+        if _matrix_covers_locations(candidates, DEPOT, candidate_matrix):
+            dist_matrix = candidate_matrix
+            distance_status = "ok"
+        else:
+            dist_matrix = None
+            distance_status = "degraded"
+            distance_fallback_reason = (
+                "Road distance matrix is unavailable or incomplete; Haversine distances are used."
+            )
         
         # Run GA
         logger.info(f"Starting GA optimization: pop={population_size}, gen={generations}, bins={len(candidates)}")
@@ -1031,6 +1237,9 @@ def api_route_optimize_ga():
         
         route, fitness = ga.optimize()
         summary = ga.get_summary()
+        summary["distance_status"] = distance_status
+        if distance_fallback_reason:
+            summary["distance_fallback_reason"] = distance_fallback_reason
         
         # Calculate cost estimate for scenario saving
         # $50 per truck + $3 per km + $10 per hour

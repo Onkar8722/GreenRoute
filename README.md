@@ -629,8 +629,26 @@ docker rm greenroute-postgres greenroute-redis greenroute-mqtt
 ### Routing & Optimization
 | Endpoint | Method | Purpose | Performance |
 |----------|--------|---------|-------------|
-| `/api/route/optimize` | POST | Nearest-neighbor routing | <100ms |
+| `/api/route` | POST | Generate routes with the selected routing strategy | — |
 | `/api/route/optimize-ga` | POST | Genetic algorithm routing | 1-3s (50 bins) |
+
+Both route-generation responses retain their existing distance fields (`distances_km` for `/api/route`,
+`distance_km` for `/api/route/optimize-ga`) and add `distance_source` and `distance_status`.
+`distance_source` is `road_network` when every directed tour leg has a road-matrix distance,
+`haversine` when the response uses straight-line distances, and `none` when `/api/route` has no
+non-empty routes. `/api/route/optimize-ga` returns 400 when no bins are eligible.
+`distance_status` is `ok`, `degraded`, or `empty`; degraded responses also
+include `distance_fallback_reason`. A response uses one source for all its route totals, and
+each total includes the depot departure and return legs. `path_geometries` remains a separate
+geometry field and is not used to calculate the reported totals.
+Any non-empty route request body must be a JSON object. Threshold is an integer from 0 to 100,
+`max_stops` from 1 to 200, and `num_trucks` from 1 to 10; GA population size is 10 to 500 and
+generations are 5 to 100. `algorithm` must be `nearest`, `priority`, `cluster`, `ga`,
+`multiobjective`, or `adaptive`; `adaptive` must be a boolean. Integer strings are accepted for
+compatibility. Malformed bodies, wrong parameter types, and out-of-range values return 400.
+Invalid bin records (including duplicate IDs or invalid coordinates) return 422.
+`/api/fleet/schedule` currently measures scheduled routes with Haversine and returns
+`distance_source: "haversine"` for its assignment and aggregate distances.
 
 ### Example Requests
 
