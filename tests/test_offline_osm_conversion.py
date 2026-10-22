@@ -13,8 +13,12 @@ import networkx as nx
 import osmnx as ox
 import requests
 
+import benchmarks.route_benchmarks.osm_json_conversion as conversion_module
 from benchmarks.route_benchmarks.osm_json_conversion import (
     ConversionError,
+    _compare_source_inventory,
+    _reference_classify_way,
+    _reference_source_selection,
     canonical_graph_checksum,
     classify_way,
     convert_document,
@@ -82,43 +86,6 @@ def grid_document():
     return {"version": 0.6, "elements": elements}
 
 
-def independent_haversine(a, b):
-    lat1, lon1 = map(math.radians, a)
-    lat2, lon2 = map(math.radians, b)
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    hav = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    return 6_371_008.8 * 2 * math.asin(min(1.0, math.sqrt(hav)))
-
-
-def reference_from_document(document):
-    nodes = {
-        int(element["id"]): (float(element["lat"]), float(element["lon"]))
-        for element in document["elements"]
-        if element.get("type") == "node"
-    }
-    reference = nx.MultiDiGraph()
-    for node_id, (lat, lon) in nodes.items():
-        reference.add_node(node_id, x=lon, y=lat)
-    for way in document["elements"]:
-        if way.get("type") != "way" or classify_way(way)["status"] != "included":
-            continue
-        refs = way.get("nodes", [])
-        if len(refs) < 2 or any(ref not in nodes for ref in refs):
-            continue
-        decision = classify_way(way)
-        for index, (first, second) in enumerate(zip(refs, refs[1:])):
-            arcs = [(first, second)]
-            if decision["direction"] == "both":
-                arcs.append((second, first))
-            elif decision["direction"] == "reverse":
-                arcs = [(second, first)]
-            for u, v in arcs:
-                length = independent_haversine(nodes[u], nodes[v])
-                reference.add_edge(u, v, way_id=way["id"], segment_index=index, length=length)
-    return reference
-
-
 class TestOfflineOsmConversion(unittest.TestCase):
     def test_policy_is_conservative_and_explicit(self):
         self.assertEqual(classify_way({"tags": {"highway": "residential"}})["direction"], "both")
@@ -142,6 +109,111 @@ class TestOfflineOsmConversion(unittest.TestCase):
             "flagged",
         )
 
+    def test_converter_and_independent_policy_match_explicit_expected_fixtures(self):
+        cases = [
+            ("malformed_tags", {"tags": "bad"}, {"status": "flagged", "reason": "malformed_tags"}),
+            ("missing_highway", {"tags": {}}, {"status": "flagged", "reason": "missing_or_ambiguous_highway"}),
+            (
+                "ambiguous_highway",
+                {"tags": {"highway": "primary;secondary"}},
+                {"status": "flagged", "reason": "missing_or_ambiguous_highway"},
+            ),
+            (
+                "unsupported_highway",
+                {"tags": {"highway": "road"}},
+                {"status": "excluded", "reason": "highway_not_in_candidate_allowlist:road"},
+            ),
+            (
+                "implicit_two_way",
+                {"tags": {"highway": "residential"}},
+                {"status": "included", "reason": "no_oneway_tag_bidirectional", "direction": "both"},
+            ),
+            (
+                "explicit_forward",
+                {"tags": {"highway": "primary", "oneway": "yes"}},
+                {"status": "included", "reason": "explicit_oneway_forward", "direction": "forward"},
+            ),
+            (
+                "explicit_reverse",
+                {"tags": {"highway": "primary", "oneway": "-1"}},
+                {"status": "included", "reason": "explicit_oneway_reverse", "direction": "reverse"},
+            ),
+            (
+                "explicit_two_way",
+                {"tags": {"highway": "primary", "oneway": "no"}},
+                {"status": "included", "reason": "explicit_two_way", "direction": "both"},
+            ),
+            (
+                "roundabout_default",
+                {"tags": {"highway": "residential", "junction": "roundabout"}},
+                {"status": "included", "reason": "roundabout_default_forward", "direction": "forward"},
+            ),
+            (
+                "roundabout_conflict",
+                {"tags": {"highway": "residential", "junction": "roundabout", "oneway": "no"}},
+                {"status": "flagged", "reason": "roundabout_contradicted_by_two_way_tag"},
+            ),
+            (
+                "ambiguous_oneway",
+                {"tags": {"highway": "primary", "oneway": "two way"}},
+                {"status": "flagged", "reason": "unsupported_oneway_value:two way"},
+            ),
+            (
+                "malformed_oneway",
+                {"tags": {"highway": "primary", "oneway": 1}},
+                {"status": "flagged", "reason": "malformed_oneway_value"},
+            ),
+            (
+                "explicit_denial",
+                {"tags": {"highway": "primary", "access": "no"}},
+                {"status": "excluded", "reason": "explicit_access_denial:access=no"},
+            ),
+            (
+                "conflicting_access",
+                {"tags": {"highway": "primary", "access": "no", "motor_vehicle": "yes"}},
+                {"status": "flagged", "reason": "conflicting_access_tags"},
+            ),
+            (
+                "contextual_access",
+                {"tags": {"highway": "primary", "access": "destination"}},
+                {"status": "flagged", "reason": "context_restricted_access:access=destination"},
+            ),
+            (
+                "malformed_access",
+                {"tags": {"highway": "primary", "access": 5}},
+                {"status": "flagged", "reason": "malformed_access_value:access"},
+            ),
+            (
+                "ambiguous_access",
+                {"tags": {"highway": "primary", "access": "yes;permissive"}},
+                {"status": "flagged", "reason": "unsupported_access_value:access=yes;permissive"},
+            ),
+            (
+                "service_tag",
+                {"tags": {"highway": "primary", "service": "driveway"}},
+                {"status": "excluded", "reason": "service_tag_requires_review"},
+            ),
+            (
+                "bus_facility",
+                {"tags": {"highway": "primary", "busway": "lane"}},
+                {"status": "flagged", "reason": "bus_facility_tag_requires_review"},
+            ),
+            (
+                "vehicle_limit",
+                {"tags": {"highway": "primary", "maxweight": "7.5"}},
+                {"status": "flagged", "reason": "vehicle_profile_required:maxweight"},
+            ),
+            (
+                "conditional_direction",
+                {"tags": {"highway": "primary", "oneway:conditional": "yes @ (Mo-Fr)"}},
+                {"status": "flagged", "reason": "conditional_access_or_direction_unsupported"},
+            ),
+        ]
+        for name, way, expected in cases:
+            with self.subTest(policy_fixture=name):
+                self.assertEqual(classify_way(way), expected)
+                self.assertEqual(_reference_classify_way(way), expected)
+
     def test_production_graph_is_built_from_source_with_direction_and_parallel_edges(self):
         result = convert_document(grid_document())
         graph = result["graph"]
@@ -162,9 +234,77 @@ class TestOfflineOsmConversion(unittest.TestCase):
         result = convert_document(grid_document())
         metrics = validate_against_source(result)
         self.assertGreater(metrics["edge_records_matched"], 0)
+        inventory = metrics["selection_inventory"]
+        self.assertTrue(inventory["valid"])
+        self.assertEqual(inventory["expected_node_count"], inventory["actual_node_count"])
+        self.assertEqual(inventory["expected_directed_edge_record_count"], inventory["actual_directed_edge_record_count"])
+        self.assertEqual(inventory["missing_directed_edge_records"], [])
+        self.assertEqual(inventory["unexpected_directed_edge_records"], [])
+        self.assertIn("not direct coordinate-to-coordinate Haversine", metrics["distance_reference_definition"])
+        self.assertEqual(metrics["path_comparison_sample"]["classification"], "all_nodes_exhaustive_for_this_graph")
         self.assertGreater(metrics["directed_pairs_checked"], 0)
         self.assertGreaterEqual(metrics["unreachable_directed_pairs_checked"], 0)
         self.assertLessEqual(metrics["maximum_length_error_m"], 1.5)
+
+    def test_reference_selection_uses_source_area_and_not_converter_classifier_or_graph(self):
+        result = convert_document(grid_document())
+        source = result["source"]
+        area = {"bounds": [-0.003, -0.003, 0.003, 0.003]}
+        with patch.object(conversion_module, "classify_way", side_effect=AssertionError("shared classifier used")):
+            selection = _reference_source_selection(source, area)
+        self.assertEqual(set(selection["source_nodes"]), {7, 8, 9, 12, 13, 14, 17, 18, 19})
+        self.assertEqual(len(selection["way_ids"]), 16)
+        self.assertEqual(sum(selection["edge_inventory"].values()), 30)
+
+        full_area = result["diagnostics"]["area"]
+        full_selection = _reference_source_selection(source, full_area)
+        inventory = _compare_source_inventory(full_selection, result["graph"])
+        self.assertTrue(inventory["valid"])
+        self.assertEqual(inventory["expected_node_count"], 25)
+        self.assertEqual(inventory["expected_selected_way_count"], 44)
+        self.assertEqual(inventory["expected_directed_edge_record_count"], 86)
+
+    def test_inventory_reports_missing_unexpected_nodes_and_way_segments(self):
+        result = convert_document(grid_document())
+        selection = _reference_source_selection(result["source"], result["diagnostics"]["area"])
+        altered = result["graph"].copy()
+        u, v, key, data = next(iter(altered.edges(keys=True, data=True)))
+        missing_record = (int(u), int(v), int(data["way_id"]), int(data["segment_index"]), str(data["direction"]))
+        altered.remove_edge(u, v, key)
+        missing_node = next(iter(selection["source_nodes"]))
+        altered.remove_node(missing_node)
+        altered.add_node(999999, x=0.0, y=0.0)
+        remaining_nodes = [node_id for node_id in altered.nodes if node_id != 999999]
+        altered.add_edge(
+            remaining_nodes[0],
+            remaining_nodes[1],
+            way_id=999999,
+            segment_index=123,
+            direction="forward",
+            length=1.0,
+        )
+
+        report = _compare_source_inventory(selection, altered)
+        self.assertFalse(report["valid"])
+        self.assertIn(missing_node, report["missing_node_ids"])
+        self.assertIn(999999, report["unexpected_node_ids"])
+        self.assertIn(
+            {
+                "from_node_id": missing_record[0],
+                "to_node_id": missing_record[1],
+                "source_way_id": missing_record[2],
+                "segment_index": missing_record[3],
+                "direction": missing_record[4],
+                "count": 1,
+            },
+            report["missing_directed_edge_records"],
+        )
+        self.assertTrue(any(record["source_way_id"] == 999999 for record in report["unexpected_directed_edge_records"]))
+        altered_result = {**result, "graph": altered}
+        with self.assertRaises(ConversionError) as raised:
+            validate_against_source(altered_result, reference_selection=selection)
+        self.assertIn('"source_way_id":999999', str(raised.exception))
+        self.assertIn('"segment_index":123', str(raised.exception))
 
     def test_all_six_closed_tours_include_depot_departure_and_return(self):
         document = grid_document()
@@ -172,11 +312,13 @@ class TestOfflineOsmConversion(unittest.TestCase):
         graph = result["graph"]
         points = generate_synthetic_points(graph, result["diagnostics"]["area"], count=4)
         self.assertTrue(all(point["inside_fixture_interior"] for point in points))
-        independent = reference_from_document(document)
+        independent_selection = _reference_source_selection(result["source"], result["diagnostics"]["area"])
+        independent = independent_selection["graph"]
         report = validate_six_tours(graph, points, independent)
         self.assertEqual(report["permutation_count"], 6)
         self.assertTrue(all(tour["closed_tour_cost_m"] > 0 for tour in report["tours"]))
         self.assertTrue(all(tour["independent_haversine_cost_m"] > 0 for tour in report["tours"]))
+        self.assertIn("not direct coordinate-to-coordinate Haversine", report["independent_haversine_cost_definition"])
 
         depot = points[0]["node_id"]
         stops = [point["node_id"] for point in points[1:]]

@@ -444,33 +444,268 @@ def _independent_haversine_m(a: tuple[float, float], b: tuple[float, float]) -> 
     return 6_371_008.8 * (2.0 * math.asin(min(1.0, math.sqrt(hav))))
 
 
-def _reference_graph(source: dict[str, Any], area: dict[str, Any], selected_node_ids: set[int]) -> nx.MultiDiGraph:
-    """Rebuild directed arcs directly from source sequences, not GeoDataFrames."""
-    reference = nx.MultiDiGraph(crs="EPSG:4326")
-    for node_id in selected_node_ids:
-        lat, lon = source["nodes"][node_id]
-        reference.add_node(node_id, x=lon, y=lat)
+def _reference_classify_way(way: dict[str, Any]) -> dict[str, str]:
+    """Independent executable statement of policy v1.0.0 for source validation.
+
+    Keep this policy oracle separate from ``classify_way`` and its constants.
+    The duplication is intentional: the source-selection check must be able to
+    detect drift in the converter's classifier.
+    """
+    allowed_highways = {
+        "living_street", "primary", "primary_link", "residential", "secondary",
+        "secondary_link", "tertiary", "tertiary_link", "trunk", "trunk_link", "unclassified",
+    }
+    access_keys = ("access", "vehicle", "motor_vehicle", "hgv", "goods")
+    permitted = {"yes", "permissive"}
+    denied = {"no", "private", "military", "emergency"}
+    contextual = {"destination", "customers", "delivery", "agricultural", "forestry", "permit", "discouraged"}
+    vehicle_limits = ("maxweight", "maxheight", "maxwidth", "maxlength", "maxaxleload")
+
+    tags = way.get("tags", {})
+    if not isinstance(tags, dict):
+        return {"status": "flagged", "reason": "malformed_tags"}
+    highway = tags.get("highway")
+    if not isinstance(highway, str) or ";" in highway or not highway.strip():
+        return {"status": "flagged", "reason": "missing_or_ambiguous_highway"}
+    highway = highway.strip().lower()
+    if highway not in allowed_highways:
+        return {"status": "excluded", "reason": f"highway_not_in_candidate_allowlist:{highway}"}
+    if "service" in tags:
+        return {"status": "excluded", "reason": "service_tag_requires_review"}
+    if "busway" in tags or "bus_stop" in tags:
+        return {"status": "flagged", "reason": "bus_facility_tag_requires_review"}
+    if any(f"{key}:conditional" in tags for key in (*access_keys, "oneway", *vehicle_limits)) or any(
+        key.startswith("oneway:") for key in tags
+    ):
+        return {"status": "flagged", "reason": "conditional_access_or_direction_unsupported"}
+
+    for key in access_keys:
+        if key not in tags:
+            continue
+        raw_value = tags[key]
+        if not isinstance(raw_value, str):
+            return {"status": "flagged", "reason": f"malformed_access_value:{key}"}
+        value = raw_value.strip().lower()
+        if value in permitted:
+            continue
+        if value in denied:
+            conflicts_with_permission = any(
+                other != key
+                and isinstance(tags.get(other), str)
+                and tags[other].strip().lower() in permitted
+                for other in access_keys
+            )
+            if conflicts_with_permission:
+                return {"status": "flagged", "reason": "conflicting_access_tags"}
+            return {"status": "excluded", "reason": f"explicit_access_denial:{key}={value}"}
+        if value in contextual:
+            return {"status": "flagged", "reason": f"context_restricted_access:{key}={value}"}
+        return {"status": "flagged", "reason": f"unsupported_access_value:{key}={value}"}
+
+    for key in vehicle_limits:
+        if key in tags:
+            return {"status": "flagged", "reason": f"vehicle_profile_required:{key}"}
+
+    raw_oneway = tags.get("oneway")
+    roundabout = isinstance(tags.get("junction"), str) and tags["junction"].strip().lower() == "roundabout"
+    if raw_oneway is None or (isinstance(raw_oneway, str) and not raw_oneway.strip()):
+        return {
+            "status": "included",
+            "reason": "roundabout_default_forward" if roundabout else "no_oneway_tag_bidirectional",
+            "direction": "forward" if roundabout else "both",
+        }
+    if not isinstance(raw_oneway, str):
+        return {"status": "flagged", "reason": "malformed_oneway_value"}
+    oneway = raw_oneway.strip().lower()
+    if oneway in {"yes", "true", "1"}:
+        return {"status": "included", "reason": "explicit_oneway_forward", "direction": "forward"}
+    if oneway == "-1":
+        return {"status": "included", "reason": "explicit_oneway_reverse", "direction": "reverse"}
+    if oneway in {"no", "false", "0"}:
+        if roundabout:
+            return {"status": "flagged", "reason": "roundabout_contradicted_by_two_way_tag"}
+        return {"status": "included", "reason": "explicit_two_way", "direction": "both"}
+    return {"status": "flagged", "reason": f"unsupported_oneway_value:{oneway}"}
+
+
+def _reference_source_records(source: dict[str, Any]) -> tuple[dict[int, tuple[float, float]], list[dict[str, Any]]]:
+    """Read validated node/way records from the original decoded JSON document."""
+    document = source.get("document")
+    if not isinstance(document, dict) or not isinstance(document.get("elements"), list):
+        raise ConversionError("Independent source selection requires the original elements array")
+
+    nodes: dict[int, tuple[float, float]] = {}
+    invalid_nodes: set[int] = set()
+    ways: dict[int, dict[str, Any]] = {}
+    for element in document["elements"]:
+        if not isinstance(element, dict):
+            continue
+        if element.get("type") == "node":
+            try:
+                node_id = int(element["id"])
+                lat, lon = element["lat"], element["lon"]
+            except (KeyError, TypeError, ValueError):
+                continue
+            valid = (
+                isinstance(lat, (int, float)) and not isinstance(lat, bool)
+                and isinstance(lon, (int, float)) and not isinstance(lon, bool)
+                and math.isfinite(float(lat)) and math.isfinite(float(lon))
+                and -90.0 <= float(lat) <= 90.0 and -180.0 <= float(lon) <= 180.0
+            )
+            if not valid:
+                invalid_nodes.add(node_id)
+                nodes.pop(node_id, None)
+                continue
+            if node_id in invalid_nodes:
+                continue
+            coordinates = (float(lat), float(lon))
+            previous = nodes.get(node_id)
+            if previous is not None and previous != coordinates:
+                raise ConversionError(f"Independent source selection found conflicting node ID {node_id}")
+            nodes[node_id] = coordinates
+        elif element.get("type") == "way":
+            try:
+                way_id = int(element["id"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            previous = ways.get(way_id)
+            if previous is not None and previous != element:
+                raise ConversionError(f"Independent source selection found conflicting way ID {way_id}")
+            ways[way_id] = element
+    return nodes, list(ways.values())
+
+
+def _reference_way_sequence(way: dict[str, Any], nodes: dict[int, tuple[float, float]]) -> list[int] | None:
+    """Validate a source way sequence without using converter sequence helpers."""
+    raw_refs = way.get("nodes")
+    if not isinstance(raw_refs, list) or len(raw_refs) < 2:
+        return None
+    try:
+        refs = [int(ref) for ref in raw_refs]
+    except (TypeError, ValueError):
+        return None
+    if any(first == second for first, second in zip(refs, refs[1:])):
+        return None
+    if any(node_id not in nodes for node_id in refs):
+        return None
+    return refs
+
+
+def _reference_source_selection(source: dict[str, Any], area: dict[str, Any]) -> dict[str, Any]:
+    """Select source ways/nodes and build a reference graph without graph output."""
+    source_nodes, ways = _reference_source_records(source)
     min_lat, min_lon, max_lat, max_lon = area["bounds"]
-    for way in source["ways"]:
-        decision = classify_way(way)
+    selected_nodes: dict[int, tuple[float, float]] = {}
+    selected_way_ids: set[int] = set()
+    expected_edges: Counter[tuple[int, int, int, int, str]] = Counter()
+
+    for way in ways:
+        decision = _reference_classify_way(way)
         if decision["status"] != "included":
             continue
-        sequence, error = _well_formed_sequence(way, source)
-        if error or not set(sequence).issubset(selected_node_ids):
+        refs = _reference_way_sequence(way, source_nodes)
+        if refs is None:
             continue
-        tags = way.get("tags", {})
-        way_id = int(way["id"])
-        for seg_index, (first, second) in enumerate(zip(sequence, sequence[1:])):
-            arcs = [(first, second)]
+        if any(
+            not (min_lat <= source_nodes[node_id][0] <= max_lat and min_lon <= source_nodes[node_id][1] <= max_lon)
+            for node_id in refs
+        ):
+            continue
+        try:
+            way_id = int(way["id"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        selected_way_ids.add(way_id)
+        for node_id in refs:
+            selected_nodes[node_id] = source_nodes[node_id]
+        for segment_index, (first, second) in enumerate(zip(refs, refs[1:])):
+            directed = [(first, second, "forward")]
             if decision["direction"] == "both":
-                arcs.append((second, first))
+                directed.append((second, first, "reverse"))
             elif decision["direction"] == "reverse":
-                arcs = [(second, first)]
-            for u, v in arcs:
-                a, b = source["nodes"][u], source["nodes"][v]
-                ref_length = _independent_haversine_m(a, b)
-                reference.add_edge(u, v, way_id=way_id, segment_index=seg_index, length=ref_length)
-    return reference
+                directed = [(second, first, "reverse")]
+            for u, v, direction in directed:
+                expected_edges[(u, v, way_id, segment_index, direction)] += 1
+
+    reference = nx.MultiDiGraph(crs="EPSG:4326")
+    for node_id, (lat, lon) in selected_nodes.items():
+        reference.add_node(node_id, x=lon, y=lat)
+    for (u, v, way_id, segment_index, direction), count in expected_edges.items():
+        length = _independent_haversine_m(selected_nodes[u], selected_nodes[v])
+        for _ in range(count):
+            reference.add_edge(
+                u, v, way_id=way_id, segment_index=segment_index, direction=direction, length=length
+            )
+
+    return {
+        "source_nodes": selected_nodes,
+        "way_ids": selected_way_ids,
+        "edge_inventory": expected_edges,
+        "graph": reference,
+    }
+
+
+def _edge_inventory_record(token: tuple[int, int, int, int, str], count: int) -> dict[str, Any]:
+    u, v, way_id, segment_index, direction = token
+    return {
+        "from_node_id": u,
+        "to_node_id": v,
+        "source_way_id": way_id,
+        "segment_index": segment_index,
+        "direction": direction,
+        "count": count,
+    }
+
+
+def _compare_source_inventory(selection: dict[str, Any], graph: nx.MultiDiGraph) -> dict[str, Any]:
+    """Compare complete source-derived node and directed-edge inventories."""
+    expected_nodes = set(selection["source_nodes"])
+    actual_nodes = {int(node_id) for node_id in graph.nodes}
+    expected_edges: Counter[tuple[int, int, int, int, str]] = selection["edge_inventory"]
+    actual_edges: Counter[tuple[int, int, int, int, str]] = Counter()
+    malformed_actual_edges = 0
+    for u, v, _, data in graph.edges(keys=True, data=True):
+        try:
+            token = (int(u), int(v), int(data["way_id"]), int(data["segment_index"]), str(data["direction"]))
+        except (KeyError, TypeError, ValueError):
+            malformed_actual_edges += 1
+            continue
+        actual_edges[token] += 1
+
+    missing_nodes = sorted(expected_nodes - actual_nodes)
+    unexpected_nodes = sorted(actual_nodes - expected_nodes)
+    missing_edges = expected_edges - actual_edges
+    unexpected_edges = actual_edges - expected_edges
+    ordered_missing = sorted(missing_edges.items())
+    ordered_unexpected = sorted(unexpected_edges.items())
+    matched_edges = sum(expected_edges.values()) - sum(missing_edges.values())
+    return {
+        "selection_method": "independent_raw_source_records_with_manifest_area_bounds",
+        "policy_method": "separate_v1.0.0_policy_oracle_with_explicit_fixture_expectations",
+        "valid": not (missing_nodes or unexpected_nodes or missing_edges or unexpected_edges or malformed_actual_edges),
+        "expected_node_count": len(expected_nodes),
+        "actual_node_count": len(actual_nodes),
+        "matched_node_count": len(expected_nodes & actual_nodes),
+        "missing_node_ids": missing_nodes[:50],
+        "missing_node_count": len(missing_nodes),
+        "unexpected_node_ids": unexpected_nodes[:50],
+        "unexpected_node_count": len(unexpected_nodes),
+        "expected_selected_way_count": len(selection["way_ids"]),
+        "actual_selected_way_count": len({token[2] for token in actual_edges}),
+        "expected_directed_edge_record_count": sum(expected_edges.values()),
+        "actual_directed_edge_record_count": sum(actual_edges.values()) + malformed_actual_edges,
+        "matched_directed_edge_record_count": matched_edges,
+        "missing_directed_edge_records": [
+            _edge_inventory_record(token, count) for token, count in ordered_missing[:50]
+        ],
+        "missing_directed_edge_record_count": sum(missing_edges.values()),
+        "unexpected_directed_edge_records": [
+            _edge_inventory_record(token, count) for token, count in ordered_unexpected[:50]
+        ],
+        "unexpected_directed_edge_record_count": sum(unexpected_edges.values()) + malformed_actual_edges,
+        "malformed_actual_edge_record_count": malformed_actual_edges,
+        "diagnostic_record_limit": 50,
+    }
 
 
 def _canonical_scalar(value: Any) -> Any:
@@ -663,59 +898,65 @@ def convert_document(document: dict[str, Any], expected_metadata: dict[str, Any]
     )
 
 
-def validate_against_source(result: dict[str, Any], *, max_reference_nodes: int = 32) -> dict[str, Any]:
-    """Compare source-derived arcs, lengths, and sampled directed paths."""
+def validate_against_source(
+    result: dict[str, Any],
+    *,
+    max_reference_nodes: int = 32,
+    reference_selection: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate source selection fully, then compare distances on a small pair sample."""
+    if max_reference_nodes < 2:
+        raise ValueError("max_reference_nodes must be at least 2")
     graph = result["graph"]
     source = result["source"]
     area = result["diagnostics"]["area"]
-    expected: Counter[tuple[int, int, int, int, str]] = Counter()
+    selection = reference_selection or _reference_source_selection(source, area)
+    inventory = _compare_source_inventory(selection, graph)
+    if not inventory["valid"]:
+        raise ConversionError(
+            "Independent source selection inventory mismatch: "
+            + json.dumps(inventory, sort_keys=True, separators=(",", ":"))
+        )
+
     maximum_length_error_m = 0.0
     length_tolerance_m = 0.05
-    for way in source["ways"]:
-        decision = classify_way(way)
-        if decision["status"] != "included":
-            continue
-        refs, error = _well_formed_sequence(way, source)
-        if error or not set(refs).issubset(graph.nodes):
-            continue
-        way_id = int(way["id"])
-        for segment_index, (first, second) in enumerate(zip(refs, refs[1:])):
-            arcs = [(first, second, "forward")]
-            if decision["direction"] == "both":
-                arcs.append((second, first, "reverse"))
-            elif decision["direction"] == "reverse":
-                arcs = [(second, first, "reverse")]
-            for u, v, direction in arcs:
-                expected[(u, v, way_id, segment_index, direction)] += 1
-
-    observed: Counter[tuple[int, int, int, int, str]] = Counter()
     for u, v, _, data in graph.edges(keys=True, data=True):
-        token = (int(u), int(v), int(data["way_id"]), int(data["segment_index"]), str(data["direction"]))
-        observed[token] += 1
-        a = source["nodes"][u]
-        b = source["nodes"][v]
+        source_u, source_v = int(u), int(v)
+        a = selection["source_nodes"][source_u]
+        b = selection["source_nodes"][source_v]
         independent_length = _independent_haversine_m(a, b)
         error = abs(float(data["length"]) - independent_length)
         maximum_length_error_m = max(maximum_length_error_m, error)
         if error > max(length_tolerance_m, independent_length * 0.006):
-            raise ConversionError(f"Independent length validation failed for arc {u}->{v}: {error:.6f} m")
-    if expected != observed:
-        missing = list((expected - observed).items())[:5]
-        extra = list((observed - expected).items())[:5]
-        raise ConversionError(f"Source edge mismatch; missing={missing}; extra={extra}")
+            way_id = int(data["way_id"])
+            segment_index = int(data["segment_index"])
+            raise ConversionError(
+                f"Independent length validation failed for way {way_id} segment {segment_index} "
+                f"arc {source_u}->{source_v}: {error:.6f} m"
+            )
 
-    reference = _reference_graph(source, area, set(graph.nodes))
-    required_nodes = sorted(graph.nodes)
-    if len(required_nodes) > max_reference_nodes:
-        # Stable, evenly spaced IDs plus synthetic route points are sampled.
-        indices = sorted({round(i * (len(required_nodes) - 1) / (max_reference_nodes - 1)) for i in range(max_reference_nodes)})
-        required_nodes = [required_nodes[index] for index in indices]
+    reference = selection["graph"]
+    all_node_ids = sorted(int(node_id) for node_id in graph.nodes)
+    if len(all_node_ids) > max_reference_nodes:
+        # Deterministic smoke sample: evenly spaced indices from sorted node IDs.
+        indices = sorted(
+            {
+                round(i * (len(all_node_ids) - 1) / (max_reference_nodes - 1))
+                for i in range(max_reference_nodes)
+            }
+        )
+        sampled_node_ids = [all_node_ids[index] for index in indices]
+        sample_type = "deterministic_smoke_sample"
+    else:
+        sampled_node_ids = all_node_ids
+        sample_type = "all_nodes_exhaustive_for_this_graph"
+
     pairs_checked = 0
     unreachable_pairs_checked = 0
     maximum_path_error_m = 0.0
     path_tolerance_m = 1.0
-    for source_id in required_nodes:
-        for target_id in required_nodes:
+    for source_id in sampled_node_ids:
+        for target_id in sampled_node_ids:
             pairs_checked += 1
             try:
                 expected_distance = nx.shortest_path_length(reference, source_id, target_id, weight="length")
@@ -735,15 +976,39 @@ def validate_against_source(result: dict[str, Any], *, max_reference_nodes: int 
             if error > max(path_tolerance_m, float(expected_distance) * 0.006):
                 raise ConversionError(f"Directed shortest-path mismatch for {source_id}->{target_id}: {error:.6f} m")
 
+    possible_ordered_pairs = len(all_node_ids) ** 2
     return {
-        "edge_records_matched": sum(expected.values()),
+        "selection_inventory": inventory,
+        "distance_reference_definition": (
+            "Shortest-path distance in meters on an independently selected source-topology graph; "
+            "reference edge weights are spherical Haversine distances between source node coordinates. "
+            "Endpoints are graph node IDs; synthetic-coordinate snap offsets are excluded. "
+            "This is not direct coordinate-to-coordinate Haversine distance."
+        ),
         "length_calculation": "WGS84 ellipsoidal versus independent spherical Haversine",
-        "length_tolerance": "max(0.05 m, 0.6% of independent segment distance)",
+        "length_tolerance": "max(0.05 m, 0.6% of independent source-segment distance)",
         "maximum_length_error_m": maximum_length_error_m,
+        "edge_records_matched": inventory["matched_directed_edge_record_count"],
         "directed_pairs_checked": pairs_checked,
         "unreachable_directed_pairs_checked": unreachable_pairs_checked,
-        "path_tolerance": "max(1 m, 0.6% of independent route distance)",
+        "path_tolerance": "max(1 m, 0.6% of independent source-graph path distance)",
         "maximum_path_error_m": maximum_path_error_m,
+        "path_comparison_sample": {
+            "classification": sample_type,
+            "construction": (
+                "sort all converted graph node IDs; choose evenly spaced rounded index positions; "
+                "evaluate the Cartesian product of sampled IDs, including self-pairs"
+            ),
+            "sampled_node_count": len(sampled_node_ids),
+            "sampled_node_ids": sampled_node_ids,
+            "sampled_ordered_pair_count": pairs_checked,
+            "possible_ordered_pair_count": possible_ordered_pairs,
+            "ordered_pair_fraction": pairs_checked / possible_ordered_pairs if possible_ordered_pairs else None,
+            "limitations": (
+                "The 32-node deterministic smoke sample is not random or spatially stratified and does not "
+                "establish graph-wide path accuracy or coverage."
+            ) if sample_type == "deterministic_smoke_sample" else None,
+        },
     }
 
 
@@ -868,6 +1133,12 @@ def validate_six_tours(
             else None
         ),
         "cost_definition": "directed depot->stop->...->depot, including outbound and return legs",
+        "independent_haversine_cost_definition": (
+            "Shortest-path cost on the independently selected source-topology graph, using spherical "
+            "Haversine segment weights between source graph nodes; endpoints are snapped graph node IDs; "
+            "synthetic-coordinate snap offsets are excluded. This is not direct coordinate-to-coordinate "
+            "Haversine distance."
+        ),
     }
 
 

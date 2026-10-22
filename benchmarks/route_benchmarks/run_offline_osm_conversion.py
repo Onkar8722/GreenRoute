@@ -27,7 +27,7 @@ from benchmarks.route_benchmarks.osm_json_conversion import (
     POLICY_NAME,
     POLICY_VERSION,
     ConversionError,
-    _reference_graph,
+    _reference_source_selection,
     canonical_graph_checksum,
     convert_parsed_source,
     generate_synthetic_points,
@@ -202,12 +202,15 @@ def main(output_stem: str = "phase3c2_october_demo", *, reverify_existing: bool 
         if graph.number_of_nodes() > MAX_NODES or graph.number_of_edges() > MAX_DIRECTED_EDGES:
             raise ConversionError("Converted graph exceeded an approved graph-size cap")
 
-        source_validation = validate_against_source(conversion)
+        reference_selection = _reference_source_selection(source, diagnostics["area"])
+        source_validation = validate_against_source(
+            conversion,
+            reference_selection=reference_selection,
+        )
         points = generate_synthetic_points(graph, diagnostics["area"], count=4)
         if not all(verify_snap_point(point, diagnostics["area"], MAX_SNAP_DISTANCE_M) for point in points):
             raise ConversionError("One or more synthetic coordinates failed the interior/snap gate")
-        reference = _reference_graph(source, diagnostics["area"], set(graph.nodes))
-        tour_validation = validate_six_tours(graph, points, reference)
+        tour_validation = validate_six_tours(graph, points, reference_selection["graph"])
 
         checksum_first = canonical_graph_checksum(graph)
         repeat_started = time.perf_counter()

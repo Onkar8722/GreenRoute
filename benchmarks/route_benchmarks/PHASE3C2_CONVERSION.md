@@ -7,6 +7,11 @@ network filter are absent from the cache metadata, so its geographic and road
 coverage cannot be established. The April response is fingerprinted but is
 not combined with or used by this conversion.
 
+Phase 3C.2.2 strengthens validation of the existing GraphML and updates its
+manifest terminology. It does not regenerate or rewrite either source cache or
+the GraphML artifact. The manifest preserves generation-time code fingerprints
+and records the audit implementation fingerprints separately.
+
 ## Reproduction
 
 Use the already-installed project environment; no packages or network access
@@ -98,13 +103,36 @@ and canonical JSON of the original tags. Parallel arcs receive deterministic
 keys. Edge `length` is WGS84 ellipsoidal distance in meters from `pyproj.Geod`,
 rounded to one micrometer. Disconnected components remain disconnected.
 
-An independently built NetworkX multigraph reads the source node sequences and
-policy decisions directly, then uses spherical Haversine segment lengths as a
-separate reference. Edge lengths must agree within `max(0.05 m, 0.6% of the
-reference segment length)`. Sampled directed path distances must agree within
-`max(1 m, 0.6% of the reference path distance)`; unreachable sampled pairs must
-remain unreachable. The manifest records the number of checked pairs and the
-largest observed errors.
+The source-selection reference is built from the original decoded JSON node
+and way records plus the declared selection-area bounds. It has its own policy
+oracle and way-sequence validation; it does not call the converter's
+`classify_way`, use the converter's selected-node set, or derive expected ways
+from the GraphML. Validation compares the complete selected node IDs and
+directed edge records `(from node, to node, source way ID, segment index,
+direction)` with the artifact. A mismatch reports missing and unexpected
+records, including source way and segment identifiers. Policy regression
+fixtures assert explicit outcomes against both the converter classifier and
+the separate reference oracle.
+
+Converted edge lengths are WGS84 ellipsoidal distances in meters. Reference
+edges use spherical Haversine distances in meters between the same source graph
+node coordinates. Segment lengths must agree within
+`max(0.05 m, 0.6% of the reference segment length)`. The reference route metric
+is shortest-path cost on that independently selected source-topology graph; it
+is **not** direct coordinate-to-coordinate Haversine distance. Path comparisons
+use identical graph-node endpoints and must agree within
+`max(1 m, 0.6% of the reference path distance)`. Unreachable sampled pairs
+must remain unreachable. Synthetic coordinate-to-node snap offsets are
+reported separately and are excluded from path and tour costs.
+
+For the 9,999-node artifact, path validation uses a deterministic smoke sample:
+sort node IDs, select 32 evenly spaced rounded index positions, then evaluate
+all 1,024 ordered pairs in their Cartesian product, including self-pairs. This
+is not a random or spatially stratified sample and does not establish graph-wide
+path accuracy or coverage. The manifest records the selected IDs, pair count,
+unreachable count, and largest observed errors. Edge/node inventory checks are
+complete for the selected graph; the six-tour check is exhaustive only for its
+one depot and three synthetic stops.
 
 Four deterministic synthetic coordinates are generated on a grid strictly
 inside the selected square, at least 30 m from its boundary. They must snap to
@@ -112,7 +140,11 @@ four distinct nodes of the largest strongly connected component, each within
 30 m by an independent WGS84 geodesic calculation. The tour validator evaluates
 all six permutations for one synthetic depot and three stops, including the
 depot departure and return legs, and compares each directed closed-tour cost
-against the independent source-derived graph.
+against the independent source-derived graph. For compatibility, the manifest
+field `independent_haversine_cost_m` is retained; it means shortest-path cost
+on the source-topology graph with spherical Haversine segment weights, using
+snapped graph-node endpoints and excluding snap offsets. It does not mean a
+straight-line Haversine tour between the four synthetic coordinates.
 
 The canonical checksum sorts node IDs and directed `(u, v, key)` edges and
 normalizes GraphML type conversions. A second conversion must reproduce it;
