@@ -37,6 +37,12 @@ try:
         from .fleet_management_api import FleetManagementAPI, validate_schedule_payload
         from .collection_window_predictor import CollectionWindowPredictor
         from .osmnx_routing import calculate_detailed_path, load_city_graph, build_distance_matrix
+        from .route_sequencing import (
+            InvalidDistanceMatrix,
+            NoFeasibleTour,
+            ROAD_SEQUENCE_MAX_STOPS,
+            sequence_route,
+        )
         from .security import protect_write_endpoints
         from .bin_upload import MAX_BIN_UPLOAD_BYTES, register_bins_upload_endpoint
         from .telemetry_storage import save_telemetry
@@ -53,6 +59,12 @@ try:
         from src.fleet_management_api import FleetManagementAPI, validate_schedule_payload
         from src.collection_window_predictor import CollectionWindowPredictor
         from src.osmnx_routing import calculate_detailed_path, load_city_graph, build_distance_matrix
+        from src.route_sequencing import (
+            InvalidDistanceMatrix,
+            NoFeasibleTour,
+            ROAD_SEQUENCE_MAX_STOPS,
+            sequence_route,
+        )
         from src.security import protect_write_endpoints
         from src.bin_upload import MAX_BIN_UPLOAD_BYTES, register_bins_upload_endpoint
         from src.telemetry_storage import save_telemetry
@@ -713,14 +725,21 @@ def _matrix_covers_locations(bins: list[dict], depot: dict, matrix: dict | None)
     return True
 
 
-def _route_distance_report(routes: list[list[dict]]):
+def _route_distance_report(
+    routes: list[list[dict]],
+    matrix: dict | None = None,
+    *,
+    use_supplied_matrix: bool = False,
+    require_road: bool = False,
+):
     """Return one consistent metric source for all route distances in a response."""
     if not any(routes):
         return [0.0 for _ in routes], "none", "empty", None, [None for _ in routes]
 
     try:
-        routed_bins = [bin_item for route in routes for bin_item in route]
-        matrix = build_distance_matrix(routed_bins, DEPOT, cap=100)
+        if not use_supplied_matrix:
+            routed_bins = [bin_item for route in routes for bin_item in route]
+            matrix = build_distance_matrix(routed_bins, DEPOT, cap=100)
         if matrix is None:
             raise ValueError("road distance matrix is unavailable")
 
@@ -738,6 +757,8 @@ def _route_distance_report(routes: list[list[dict]]):
             route_matrices.append(matrix)
         return road_distances, "road_network", "ok", None, route_matrices
     except Exception as exc:
+        if require_road:
+            raise ValueError(f"Required road distance matrix cannot score the selected routes: {exc}") from exc
         logger.warning("Road route distance unavailable; using Haversine for all routes: %s", exc)
         reason = "Road distance matrix is unavailable or incomplete; Haversine distances are reported."
         return (
@@ -1094,6 +1115,11 @@ def api_route():
     if error:
         return jsonify({"error": error}), 400
 
+    sequence_cost = body.get("sequence_cost")
+    if "sequence_cost" in body and sequence_cost != "road_network":
+        return jsonify({"error": "sequence_cost must be road_network when provided"}), 400
+    sequence_enabled = "sequence_cost" in body
+
     algo = body.get("algorithm", "priority")
     if not isinstance(algo, str) or algo not in (
         "nearest", "priority", "cluster", "ga", "multiobjective", "adaptive"
@@ -1114,9 +1140,84 @@ def api_route():
     eligible = [b for b in bins if b["fill"] >= threshold]
     
     routes = compute_routes_logic(eligible, algo, num_trucks, max_stops, threshold, adaptive)
-    distances, distance_source, distance_status, distance_fallback_reason, route_matrices = (
-        _route_distance_report(routes)
-    )
+    sequence_matrix = None
+    if sequence_enabled:
+        selected_bins = [bin_item for route in routes for bin_item in route]
+        if len(selected_bins) > ROAD_SEQUENCE_MAX_STOPS:
+            return jsonify(
+                {
+                    "error": (
+                        "road_network sequencing supports at most "
+                        f"{ROAD_SEQUENCE_MAX_STOPS} selected stops"
+                    )
+                }
+            ), 400
+
+        if selected_bins:
+            try:
+                sequence_matrix = build_distance_matrix(
+                    selected_bins,
+                    DEPOT,
+                    cap=ROAD_SEQUENCE_MAX_STOPS,
+                )
+            except Exception as exc:
+                logger.exception("Road distance matrix construction failed")
+                return jsonify(
+                    {
+                        "error": f"Road distance matrix construction failed: {exc}",
+                        "code": "road_matrix_unavailable",
+                    }
+                ), 503
+            if sequence_matrix is None:
+                return jsonify(
+                    {
+                        "error": "Road distance matrix is unavailable",
+                        "code": "road_matrix_unavailable",
+                    }
+                ), 503
+
+            try:
+                routes = [
+                    sequence_route(route, DEPOT, sequence_matrix) if route else []
+                    for route in routes
+                ]
+            except NoFeasibleTour as exc:
+                return jsonify({"error": str(exc), "code": "no_feasible_road_tour_found"}), 422
+            except (InvalidDistanceMatrix, ValueError, TypeError, OverflowError) as exc:
+                return jsonify(
+                    {
+                        "error": f"Road distance matrix is unavailable or invalid: {exc}",
+                        "code": "road_matrix_unavailable",
+                    }
+                ), 503
+            except Exception as exc:
+                logger.exception("Road network sequencing failed")
+                return jsonify(
+                    {
+                        "error": f"Road network sequencing failed: {exc}",
+                        "code": "road_sequencing_failed",
+                    }
+                ), 503
+
+    try:
+        distances, distance_source, distance_status, distance_fallback_reason, route_matrices = (
+            _route_distance_report(
+                routes,
+                sequence_matrix,
+                use_supplied_matrix=sequence_enabled,
+                require_road=sequence_enabled,
+            )
+        )
+    except Exception as exc:
+        if not sequence_enabled:
+            raise
+        logger.warning("Supplied road matrix could not score sequenced routes: %s", exc)
+        return jsonify(
+            {
+                "error": f"Road distance matrix could not score the sequenced routes: {exc}",
+                "code": "road_matrix_unavailable",
+            }
+        ), 503
     skipped = skipped_bins(eligible, routes)
     
     # Calculate emissions and detailed path geometry
@@ -1160,6 +1261,8 @@ def api_route():
         "skipped": skipped,
         "eligible_count": len(eligible),
     }
+    if sequence_enabled:
+        result["sequencing_method"] = "directed_matrix_nearest_neighbor_2opt"
     if distance_fallback_reason:
         result["distance_fallback_reason"] = distance_fallback_reason
     

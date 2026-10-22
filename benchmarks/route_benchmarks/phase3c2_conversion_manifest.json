@@ -1,0 +1,281 @@
+{
+  "artifact": {
+    "canonical_graph_sha256": "cea82d91112038fca764b429db81be1b67c7fb594570d045c1eddce5c12adef4",
+    "directed_edges": 18105,
+    "largest_strong_component_fraction": 0.9213921392139214,
+    "largest_strong_component_nodes": 9213,
+    "nodes": 9999,
+    "parallel_directed_pair_count": 0,
+    "path": "benchmarks/route_benchmarks/phase3c2_october_demo.graphml",
+    "sha256": "3b236d63e257c17ca030ed32e837539b13da44b22b62f9196ef2676c0abe4a99",
+    "status": "conversion-mechanics demonstration only; not a verified drive graph",
+    "strongly_connected_component_count": 389
+  },
+  "conversion": {
+    "code_version": "phase3c2-offline-converter-v1",
+    "converter_source_sha256": "213194cf5e294b43b9d4c0d3ad3d3efc66c878230b9809b5e954eee100a48072",
+    "crs": "EPSG:4326",
+    "dependency_versions": {
+      "geopandas": "1.1.4",
+      "networkx": "3.7",
+      "osmnx": "2.1.1",
+      "pandas": "2.3.3",
+      "pyproj": "3.8.0",
+      "shapely": "2.2.0"
+    },
+    "edge_length_method": "WGS84 ellipsoidal geodesic length in meters, rounded to 1 micrometer",
+    "network_call_attempts": [],
+    "network_calls_attempted": 0,
+    "peak_process_working_set_bytes": 599461888,
+    "runner_source_sha256": "6b0cd26ba712c9e18715b36d339d5d0e32553e266af6cfe881a29173c9bb7814",
+    "timings_seconds": {
+      "artifact_publish_seconds": 5.999900167807937e-07,
+      "filtering_seconds": 18.45708540000487,
+      "graph_construction_seconds": 0.49016210000263527,
+      "graphml_serialization_seconds": 1.970012299992959,
+      "length_calculation_seconds": 0.04310290000285022,
+      "parse_seconds": 0.6542660999984946,
+      "source_read_seconds": 0.008674299999256618,
+      "spatial_index_seconds": 0.0029020999936619774,
+      "total_process_elapsed_seconds_before_manifest": 84.51271819999965
+    }
+  },
+  "licensing": {
+    "attribution_review": "pending",
+    "share_alike_and_distribution_review": "pending; no legal conclusion made",
+    "source_notice": "OpenStreetMap contributors; Open Database License (ODbL) per local response notice"
+  },
+  "limitations": [
+    "Original Overpass query and requested network filter are unknown.",
+    "The conservative candidate-access policy does not model a specific collection vehicle.",
+    "The artifact is not integrated with production routing and is not a verified drive graph.",
+    "ODbL attribution and distribution review is pending."
+  ],
+  "policy": {
+    "access_policy_is_candidate_filter_only": true,
+    "diagnostics": {
+      "area": {
+        "bounds": [
+          18.494071350000013,
+          73.83176080000003,
+          18.535241249999984,
+          73.8729307
+        ],
+        "center_lat_lon": [
+          18.5146563,
+          73.85234575000001
+        ],
+        "expected_directed_edge_count": 18105,
+        "expected_node_count": 9999,
+        "max_directed_edges": 25000,
+        "max_nodes": 10000,
+        "radius_degrees": 0.0205849499999855,
+        "selection_method": "largest_centered_square_fitting_fixed_caps_v1"
+      },
+      "candidate_node_count": 9999,
+      "directed_edge_count": 18105,
+      "largest_strong_component_fraction": 0.9213921392139214,
+      "largest_strong_component_nodes": 9213,
+      "node_count": 9999,
+      "parallel_directed_pair_count": 0,
+      "reason_counts": {
+        "bus_facility_tag_requires_review": 2,
+        "conditional_access_or_direction_unsupported": 3,
+        "conflicting_access_tags": 1,
+        "context_restricted_access:access=destination": 1,
+        "context_restricted_access:access=permit": 2,
+        "context_restricted_access:motor_vehicle=destination": 1,
+        "context_restricted_access:motor_vehicle=permit": 1,
+        "explicit_access_denial:access=military": 45,
+        "explicit_access_denial:access=no": 39,
+        "explicit_access_denial:hgv=no": 12,
+        "explicit_access_denial:motor_vehicle=private": 3,
+        "explicit_oneway_forward": 716,
+        "explicit_two_way": 126,
+        "highway_not_in_candidate_allowlist:bus_stop": 3,
+        "highway_not_in_candidate_allowlist:busway": 128,
+        "highway_not_in_candidate_allowlist:road": 1,
+        "no_oneway_tag_bidirectional": 1711,
+        "outside_experiment_bounds": 41131,
+        "roundabout_contradicted_by_two_way_tag": 4,
+        "roundabout_default_forward": 16,
+        "vehicle_profile_required:maxaxleload": 1,
+        "vehicle_profile_required:maxheight": 60,
+        "vehicle_profile_required:maxwidth": 1
+      },
+      "spatial_index_size": 9999,
+      "strongly_connected_component_count": 389,
+      "way_counts": {
+        "excluded": 41362,
+        "flagged": 77,
+        "included": 2569,
+        "malformed": 0
+      }
+    },
+    "highway_allowlist": [
+      "living_street",
+      "primary",
+      "primary_link",
+      "residential",
+      "secondary",
+      "secondary_link",
+      "tertiary",
+      "tertiary_link",
+      "trunk",
+      "trunk_link",
+      "unclassified"
+    ],
+    "name": "greenroute_conservative_candidate_access",
+    "vehicle_profile": "unspecified; physical restrictions are excluded pending a real fleet profile",
+    "version": "1.0.0"
+  },
+  "schema": "phase3c2-offline-osm-conversion-v1",
+  "source": {
+    "april_snapshot": {
+      "path": "cache/943a2cc7ad43949e49e19c3e9cfcc2576776572e.json",
+      "sha256_after": "9e580eb806a53568b77aa74c1e38e2d0591358d09d11b78c79d1146acaed7d2d",
+      "sha256_before": "9e580eb806a53568b77aa74c1e38e2d0591358d09d11b78c79d1146acaed7d2d",
+      "used_for_conversion": false
+    },
+    "bytes": 24555788,
+    "copyright_notice": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL.",
+    "element_counts": {
+      "node": 217484,
+      "relation": 0,
+      "way": 44008
+    },
+    "generator": "Overpass API 0.7.62.11 87bfad18",
+    "geographic_bounds_lat_lon": [
+      18.3466226,
+      73.662884,
+      18.68269,
+      74.0418075
+    ],
+    "path": "src/cache/943a2cc7ad43949e49e19c3e9cfcc2576776572e.json",
+    "query_filter_provenance": "unknown; not recorded in this response or supplied cache metadata",
+    "sha256_after": "23199899b4952ffba3472c602cafd65cf2e8f8ed1be3d3fd7ce6ff45d29322df",
+    "sha256_before": "23199899b4952ffba3472c602cafd65cf2e8f8ed1be3d3fd7ce6ff45d29322df",
+    "sha256_before_artifact": "23199899b4952ffba3472c602cafd65cf2e8f8ed1be3d3fd7ce6ff45d29322df",
+    "snapshot_timestamp": "2026-10-20T09:10:21Z"
+  },
+  "validation": {
+    "canonical_checksum_repeat_match": true,
+    "graphml_roundtrip_directed_edges": 18105,
+    "graphml_roundtrip_nodes": 9999,
+    "repeat_conversion_seconds": 18.23102399999334,
+    "serialized_graph_checksum_match": true,
+    "serialized_graph_sha256": "3b236d63e257c17ca030ed32e837539b13da44b22b62f9196ef2676c0abe4a99",
+    "six_tour_enumeration": {
+      "cost_definition": "directed depot->stop->...->depot, including outbound and return legs",
+      "depot_node": 10239784257,
+      "minimum_cost_m": 2289.5588559999997,
+      "minimum_independent_cost_m": 2294.1396916053254,
+      "permutation_count": 6,
+      "stop_nodes": [
+        10223420405,
+        2184076840,
+        10223417271
+      ],
+      "tours": [
+        {
+          "closed_tour_cost_m": 2297.092583,
+          "independent_haversine_cost_m": 2301.6996852740517,
+          "order": [
+            10223420405,
+            2184076840,
+            10223417271
+          ]
+        },
+        {
+          "closed_tour_cost_m": 2366.9420379999997,
+          "independent_haversine_cost_m": 2371.586253630439,
+          "order": [
+            10223420405,
+            10223417271,
+            2184076840
+          ]
+        },
+        {
+          "closed_tour_cost_m": 2477.097281,
+          "independent_haversine_cost_m": 2481.468505157646,
+          "order": [
+            2184076840,
+            10223420405,
+            10223417271
+          ]
+        },
+        {
+          "closed_tour_cost_m": 2366.942038,
+          "independent_haversine_cost_m": 2371.586253630439,
+          "order": [
+            2184076840,
+            10223417271,
+            10223420405
+          ]
+        },
+        {
+          "closed_tour_cost_m": 2469.563554,
+          "independent_haversine_cost_m": 2473.9085114889194,
+          "order": [
+            10223417271,
+            10223420405,
+            2184076840
+          ]
+        },
+        {
+          "closed_tour_cost_m": 2289.5588559999997,
+          "independent_haversine_cost_m": 2294.1396916053254,
+          "order": [
+            10223417271,
+            2184076840,
+            10223420405
+          ]
+        }
+      ]
+    },
+    "source_graph_comparison": {
+      "directed_pairs_checked": 1024,
+      "edge_records_matched": 18105,
+      "length_calculation": "WGS84 ellipsoidal versus independent spherical Haversine",
+      "length_tolerance": "max(0.05 m, 0.6% of independent segment distance)",
+      "maximum_length_error_m": 1.2297782850703811,
+      "maximum_path_error_m": 15.454188584794792,
+      "path_tolerance": "max(1 m, 0.6% of independent route distance)",
+      "unreachable_directed_pairs_checked": 62
+    },
+    "synthetic_points": [
+      {
+        "id": "SYN_POINT_0",
+        "inside_fixture_interior": true,
+        "lat": 18.4943426615199,
+        "lon": 73.85166905843339,
+        "node_id": 10239784257,
+        "snap_distance_m": 18.665570935624462
+      },
+      {
+        "id": "SYN_POINT_1",
+        "inside_fixture_interior": true,
+        "lat": 18.4943426615199,
+        "lon": 73.85302244156664,
+        "node_id": 10223420405,
+        "snap_distance_m": 19.806020877303613
+      },
+      {
+        "id": "SYN_POINT_2",
+        "inside_fixture_interior": true,
+        "lat": 18.4943426615199,
+        "lon": 73.85369913313325,
+        "node_id": 2184076840,
+        "snap_distance_m": 11.236182922488993
+      },
+      {
+        "id": "SYN_POINT_3",
+        "inside_fixture_interior": true,
+        "lat": 18.4943426615199,
+        "lon": 73.85640589939972,
+        "node_id": 10223417271,
+        "snap_distance_m": 19.121037845467853
+      }
+    ]
+  }
+}

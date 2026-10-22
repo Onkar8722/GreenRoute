@@ -1,0 +1,61 @@
+{
+  "schema": "phase3b-road-fixture-manifest-v1",
+  "fixture": {
+    "path": "tests/fixtures/phase3b_synthetic_drive_graph.graphml",
+    "sha256": "2819dc5271f4d8cc40394324bc2a1ef425f0a9b8e2d4565df34cfe172675109b",
+    "origin": "synthetic_authored_fixture",
+    "construction_method": "Manually authored GraphML; not converted from the local Overpass responses.",
+    "uses_openstreetmap_data": false,
+    "node_count": 4,
+    "directed_edge_count": 4,
+    "graph_type_after_load": "networkx.MultiDiGraph",
+    "crs": "EPSG:4326",
+    "filtering_applied": "No source-data filter was applied. The fixture contains exactly four manually authored nodes and four directed arcs; no OSM highway or access tags were inferred.",
+    "node_order": [
+      {"id": "DEPOT", "graph_node": 1, "lat": 18.5204, "lng": 73.8567},
+      {"id": "SYN_BIN_A", "graph_node": 2, "lat": 18.5204, "lng": 73.8577},
+      {"id": "SYN_BIN_B", "graph_node": 3, "lat": 18.5204, "lng": 73.8587},
+      {"id": "SYN_BIN_C", "graph_node": 4, "lat": 18.5204, "lng": 73.8597}
+    ],
+    "directed_edges_meters": [
+      {"from": 1, "to": 2, "length_m": 100.0, "oneway": true},
+      {"from": 2, "to": 3, "length_m": 120.0, "oneway": true},
+      {"from": 3, "to": 4, "length_m": 140.0, "oneway": true},
+      {"from": 4, "to": 1, "length_m": 160.0, "oneway": true}
+    ],
+    "metadata": {
+      "edge_highway_value": "synthetic_test_road",
+      "edge_lengths": "Explicit synthetic arc costs in meters; they are not measured from geographic geometry or an OSM network.",
+      "directionality": "All edges are authored as one-way directed arcs. There is no direct reverse arc for 2 -> 3; the directed cycle still provides a valid return path to the depot.",
+      "coordinate_mapping": "All fixture coordinates are exactly equal to their intended graph node coordinates.",
+      "production_snap_distance_limit": "Not exposed by the current production matrix builder; arbitrary-coordinate coverage is not established by this fixture."
+    }
+  },
+  "validated_reader_environment": {
+    "python": "3.12.10",
+    "osmnx": "2.1.1",
+    "networkx": "3.7",
+    "reader": "osmnx.load_graphml"
+  },
+  "original_local_overpass_cache_files": [
+    {
+      "path": "cache/943a2cc7ad43949e49e19c3e9cfcc2576776572e.json",
+      "bytes": 24102393,
+      "last_write_utc": "2026-04-17T11:08:24Z",
+      "sha256": "9e580eb806a53568b77aa74c1e38e2d0591358d09d11b78c79d1146acaed7d2d",
+      "response_timestamp_osm_base": "2026-04-17T11:07:09Z",
+      "element_counts": {"node": 214290, "way": 43240},
+      "local_attribution_notice": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+    },
+    {
+      "path": "src/cache/943a2cc7ad43949e49e19c3e9cfcc2576776572e.json",
+      "bytes": 24555788,
+      "last_write_utc": "2026-10-20T09:12:36Z",
+      "sha256": "23199899b4952ffba3472c602cafd65cf2e8f8ed1be3d3fd7ce6ff45d29322df",
+      "response_timestamp_osm_base": "2026-10-20T09:10:21Z",
+      "element_counts": {"node": 217484, "way": 44008},
+      "local_attribution_notice": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+    }
+  ],
+  "licensing_caveat": "The cache response notice is recorded as found. This fixture is synthetic and includes no cache content. No conclusion about redistribution rights is made."
+}

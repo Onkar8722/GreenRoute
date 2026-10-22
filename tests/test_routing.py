@@ -192,8 +192,11 @@ class TestPriorityRouting(unittest.TestCase, RouteTestCase):
         low_threshold = 50
         high_priority = [b for b in self.bins if b['fill'] >= low_threshold]
         
-        self.assertEqual(len(high_priority), 3)
-        self.assertNotIn("BIN_002", [b['id'] for b in high_priority])
+        self.assertEqual(len(high_priority), 2)
+        self.assertEqual(
+            {b['id'] for b in high_priority},
+            {"BIN_001", "BIN_003"},
+        )
     
     def test_priority_preserves_all_critical_bins(self):
         """Test that critical bins (>80%) are always included."""

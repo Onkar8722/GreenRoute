@@ -113,7 +113,7 @@ class RouteCostConsistencyTests(unittest.TestCase):
         module = self.app_module
         with (
             patch.object(module, "get_bins_data", return_value=[BIN_A, BIN_B]),
-            patch.object(module, "build_distance_matrix", return_value=ROAD_MATRIX),
+            patch.object(module, "build_distance_matrix", return_value=ROAD_MATRIX) as build_matrix,
             patch.object(module, "calculate_detailed_path", return_value=[[1.0, 2.0]]),
         ):
             response = self.client.post(
@@ -128,6 +128,157 @@ class RouteCostConsistencyTests(unittest.TestCase):
         self.assertEqual(result["distances_km"], [round(expected, 2)])
         self.assertEqual(result["distance_source"], "road_network")
         self.assertEqual(result["distance_status"], "ok")
+        self.assertNotIn("sequencing_method", result)
+        build_matrix.assert_called_once_with([BIN_A, BIN_B], module.DEPOT, cap=100)
+
+    def test_opt_in_sequencing_preserves_routes_and_scores_the_supplied_matrix_once(self):
+        module = self.app_module
+        bin_c = {"id": "C", "lat": 18.55, "lng": 73.88, "fill": 85}
+        matrix = {
+            "DEPOT": {"A": 2, "B": 1, "C": 2},
+            "A": {"DEPOT": 2, "A": 0, "B": 10, "C": 50},
+            "B": {"DEPOT": 3, "A": 1, "B": 0, "C": 50},
+            "C": {"DEPOT": 3, "A": 50, "B": 50, "C": 0},
+        }
+        original_routes = [[BIN_A, BIN_B], [bin_c]]
+        with (
+            patch.object(module, "get_bins_data", return_value=[BIN_A, BIN_B, bin_c]),
+            patch.object(module, "compute_routes_logic", return_value=original_routes),
+            patch.object(module, "build_distance_matrix", return_value=matrix) as build_matrix,
+            patch.object(module, "calculate_detailed_path", return_value=[[1.0, 2.0]]),
+        ):
+            response = self.client.post(
+                "/api/route",
+                json={
+                    "algorithm": "nearest",
+                    "num_trucks": 2,
+                    "max_stops": 2,
+                    "sequence_cost": "road_network",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.get_json()
+        route_ids = [[item["id"] for item in route] for route in result["routes"]]
+        self.assertEqual([set(route) for route in route_ids], [{"A", "B"}, {"C"}])
+        self.assertEqual(route_ids[1], ["C"])
+        self.assertEqual(route_ids[0], ["B", "A"])
+        self.assertEqual(result["distances_km"], [4.0, 5.0])
+        self.assertEqual(result["distance_source"], "road_network")
+        self.assertEqual(result["distance_status"], "ok")
+        self.assertEqual(
+            result["sequencing_method"],
+            "directed_matrix_nearest_neighbor_2opt",
+        )
+        self.assertNotIn("distance_fallback_reason", result)
+        build_matrix.assert_called_once_with(
+            [BIN_A, BIN_B, bin_c],
+            module.DEPOT,
+            cap=module.ROAD_SEQUENCE_MAX_STOPS,
+        )
+
+    def test_opt_in_sequencing_rejects_invalid_field_before_bin_loading(self):
+        module = self.app_module
+        with patch.object(module, "get_bins_data") as get_bins:
+            response = self.client.post("/api/route", json={"sequence_cost": "haversine"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("sequence_cost", response.get_json()["error"])
+        get_bins.assert_not_called()
+
+    def test_opt_in_sequencing_applies_total_stop_cap_before_matrix_build(self):
+        module = self.app_module
+        bins = [
+            {
+                "id": f"BIN_{index:02d}",
+                "lat": 18.5,
+                "lng": 73.8,
+                "fill": 90,
+            }
+            for index in range(module.ROAD_SEQUENCE_MAX_STOPS + 1)
+        ]
+        with (
+            patch.object(module, "get_bins_data", return_value=bins),
+            patch.object(module, "compute_routes_logic", return_value=[bins]),
+            patch.object(module, "build_distance_matrix") as build_matrix,
+        ):
+            response = self.client.post(
+                "/api/route",
+                json={"sequence_cost": "road_network", "max_stops": 100},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("at most 50 selected stops", response.get_json()["error"])
+        build_matrix.assert_not_called()
+
+    def test_opt_in_sequencing_matrix_failures_do_not_fall_back_to_haversine(self):
+        module = self.app_module
+        for unavailable_matrix in (None, {}):
+            with (
+                patch.object(module, "get_bins_data", return_value=[BIN_A]),
+                patch.object(module, "build_distance_matrix", return_value=unavailable_matrix),
+                patch.object(module, "route_distance_km", side_effect=AssertionError("fallback used")),
+                patch.object(module, "calculate_detailed_path") as calculate_path,
+            ):
+                response = self.client.post(
+                    "/api/route",
+                    json={"sequence_cost": "road_network", "max_stops": 1},
+                )
+
+            self.assertEqual(response.status_code, 503)
+            self.assertEqual(
+                response.get_json()["code"],
+                "road_matrix_unavailable",
+            )
+            calculate_path.assert_not_called()
+
+    def test_opt_in_sequencing_reports_road_matrix_builder_failure(self):
+        module = self.app_module
+        with (
+            patch.object(module, "get_bins_data", return_value=[BIN_A]),
+            patch.object(
+                module,
+                "build_distance_matrix",
+                side_effect=RuntimeError("road graph unavailable"),
+            ),
+            patch.object(module, "route_distance_km", side_effect=AssertionError("fallback used")),
+            patch.object(module, "calculate_detailed_path") as calculate_path,
+        ):
+            response = self.client.post(
+                "/api/route",
+                json={"sequence_cost": "road_network", "max_stops": 1},
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.get_json()["code"], "road_matrix_unavailable")
+        self.assertIn("road graph unavailable", response.get_json()["error"])
+        calculate_path.assert_not_called()
+
+    def test_opt_in_sequencing_reports_no_feasible_tour_without_fallback(self):
+        module = self.app_module
+        no_cycle_matrix = {
+            "DEPOT": {"A": 1, "B": 2},
+            "A": {"DEPOT": float("inf"), "B": float("inf")},
+            "B": {"DEPOT": float("inf"), "A": float("inf")},
+        }
+        with (
+            patch.object(module, "get_bins_data", return_value=[BIN_A, BIN_B]),
+            patch.object(
+                module,
+                "compute_routes_logic",
+                return_value=[[BIN_A, BIN_B]],
+            ),
+            patch.object(module, "build_distance_matrix", return_value=no_cycle_matrix),
+            patch.object(module, "route_distance_km", side_effect=AssertionError("fallback used")),
+        ):
+            response = self.client.post(
+                "/api/route",
+                json={"sequence_cost": "road_network", "max_stops": 2},
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.get_json()["code"], "no_feasible_road_tour_found")
+        self.assertIn("no feasible closed tour", response.get_json()["error"])
 
     def test_route_endpoint_marks_whole_response_degraded_on_unavailable_arc(self):
         module = self.app_module

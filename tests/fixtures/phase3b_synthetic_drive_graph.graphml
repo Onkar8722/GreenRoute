@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd">
+  <key id="g_crs" for="graph" attr.name="crs" attr.type="string" />
+  <key id="g_simplified" for="graph" attr.name="simplified" attr.type="string" />
+  <key id="g_fixture_origin" for="graph" attr.name="fixture_origin" attr.type="string" />
+  <key id="g_fixture_name" for="graph" attr.name="fixture_name" attr.type="string" />
+  <key id="n_x" for="node" attr.name="x" attr.type="string" />
+  <key id="n_y" for="node" attr.name="y" attr.type="string" />
+  <key id="n_label" for="node" attr.name="fixture_label" attr.type="string" />
+  <key id="e_length" for="edge" attr.name="length" attr.type="string" />
+  <key id="e_oneway" for="edge" attr.name="oneway" attr.type="string" />
+  <key id="e_name" for="edge" attr.name="name" attr.type="string" />
+  <key id="e_highway" for="edge" attr.name="highway" attr.type="string" />
+  <graph id="phase3b_synthetic_directed_graph" edgedefault="directed">
+    <data key="g_crs">epsg:4326</data>
+    <data key="g_simplified">False</data>
+    <data key="g_fixture_origin">synthetic_authored_fixture</data>
+    <data key="g_fixture_name">GreenRoute Phase 3B synthetic directed cycle</data>
+    <node id="1">
+      <data key="n_x">73.8567</data>
+      <data key="n_y">18.5204</data>
+      <data key="n_label">DEPOT</data>
+    </node>
+    <node id="2">
+      <data key="n_x">73.8577</data>
+      <data key="n_y">18.5204</data>
+      <data key="n_label">SYN_BIN_A</data>
+    </node>
+    <node id="3">
+      <data key="n_x">73.8587</data>
+      <data key="n_y">18.5204</data>
+      <data key="n_label">SYN_BIN_B</data>
+    </node>
+    <node id="4">
+      <data key="n_x">73.8597</data>
+      <data key="n_y">18.5204</data>
+      <data key="n_label">SYN_BIN_C</data>
+    </node>
+    <edge id="e_1_2" source="1" target="2">
+      <data key="e_length">100.0</data>
+      <data key="e_oneway">True</data>
+      <data key="e_name">synthetic_depot_to_a</data>
+      <data key="e_highway">synthetic_test_road</data>
+    </edge>
+    <edge id="e_2_3" source="2" target="3">
+      <data key="e_length">120.0</data>
+      <data key="e_oneway">True</data>
+      <data key="e_name">synthetic_one_way_a_to_b</data>
+      <data key="e_highway">synthetic_test_road</data>
+    </edge>
+    <edge id="e_3_4" source="3" target="4">
+      <data key="e_length">140.0</data>
+      <data key="e_oneway">True</data>
+      <data key="e_name">synthetic_b_to_c</data>
+      <data key="e_highway">synthetic_test_road</data>
+    </edge>
+    <edge id="e_4_1" source="4" target="1">
+      <data key="e_length">160.0</data>
+      <data key="e_oneway">True</data>
+      <data key="e_name">synthetic_c_return_to_depot</data>
+      <data key="e_highway">synthetic_test_road</data>
+    </edge>
+  </graph>
+</graphml>
